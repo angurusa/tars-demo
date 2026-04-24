@@ -1,0 +1,2681 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TARS — A talk in seven acts</title>
+  <meta name="description" content="A personal work OS, and what I learned building one." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Space+Grotesk:wght@300..700&family=JetBrains+Mono:wght@300..600&display=swap"
+  />
+  <style>
+    /* ———————————————————————————————————————————————————
+       tokens
+       ——————————————————————————————————————————————————— */
+    :root {
+      --bg:          #100a05;
+      --bg-2:        #1a120b;
+      --bg-3:        #241a11;
+      --ink:         #ece3d1;
+      --ink-2:       #c9bfa9;
+      --ink-dim:     #8a8175;
+      --ink-faint:   #4e463c;
+      --paper:       #f3ebdc;
+      --amber:       #e8903c;
+      --amber-deep:  #b56026;
+      --amber-soft:  rgba(232, 144, 60, 0.18);
+      --ember:       #c85a2a;
+      --rule:        rgba(236, 227, 209, 0.08);
+      --rule-strong: rgba(236, 227, 209, 0.18);
+
+      --serif: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+      --sans:  "Space Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
+      --mono:  "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+      --ease:     cubic-bezier(0.22, 1, 0.36, 1);
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: clamp(15px, 1.05vw, 19px);
+      line-height: 1.45;
+      height: 100vh;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      font-feature-settings: "ss01", "cv11";
+    }
+
+    /* cinematic grain */
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.7 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      opacity: 0.04;
+      mix-blend-mode: overlay;
+      z-index: 1000;
+    }
+
+    /* soft vignette */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(140% 90% at 50% 40%, transparent 45%, rgba(0, 0, 0, 0.5) 100%);
+      z-index: 999;
+    }
+
+    /* ———————————————————————————————————————————————————
+       deck
+       ——————————————————————————————————————————————————— */
+    .deck {
+      position: fixed;
+      inset: 0;
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      padding: clamp(2.5rem, 5.5vw, 6.5rem);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 520ms var(--ease);
+    }
+
+    .slide.is-active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .slide.is-active .stagger > * {
+      animation: rise 700ms var(--ease-out) both;
+    }
+    .slide.is-active .stagger > *:nth-child(1) { animation-delay: 120ms; }
+    .slide.is-active .stagger > *:nth-child(2) { animation-delay: 260ms; }
+    .slide.is-active .stagger > *:nth-child(3) { animation-delay: 400ms; }
+    .slide.is-active .stagger > *:nth-child(4) { animation-delay: 540ms; }
+    .slide.is-active .stagger > *:nth-child(5) { animation-delay: 680ms; }
+    .slide.is-active .stagger > *:nth-child(6) { animation-delay: 820ms; }
+    .slide.is-active .stagger > *:nth-child(7) { animation-delay: 960ms; }
+    .slide.is-active .stagger > *:nth-child(8) { animation-delay: 1100ms; }
+
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ———————————————————————————————————————————————————
+       typography primitives
+       ——————————————————————————————————————————————————— */
+    .eyebrow {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+      font-weight: 400;
+    }
+    .eyebrow .amber { color: var(--amber); }
+
+    .display {
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 144, "SOFT" 20;
+      font-weight: 300;
+      letter-spacing: -0.025em;
+      line-height: 0.98;
+      color: var(--paper);
+    }
+
+    .display em,
+    .display .ital {
+      font-style: italic;
+      font-variation-settings: "opsz" 144, "SOFT" 100;
+      color: var(--amber);
+    }
+
+    .lede {
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 36;
+      font-weight: 350;
+      line-height: 1.2;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+    }
+
+    .caption {
+      color: var(--ink-dim);
+      font-size: 0.95rem;
+      letter-spacing: 0.01em;
+    }
+
+    .mono { font-family: var(--mono); }
+    .num  { font-family: var(--serif); font-variation-settings: "opsz" 144; font-weight: 300; }
+
+    .rule {
+      border: 0;
+      height: 1px;
+      background: var(--rule-strong);
+      margin: 0;
+    }
+
+    /* ———————————————————————————————————————————————————
+       chrome — the frame around every slide
+       ——————————————————————————————————————————————————— */
+    .chrome {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 50;
+    }
+
+    .chrome__corner {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+    }
+
+    .chrome__corner--tl { top: 1.75rem;    left: 2rem; }
+    .chrome__corner--tr { top: 1.75rem;    right: 2rem; }
+    .chrome__corner--bl { bottom: 1.75rem; left: 2rem; }
+    .chrome__corner--br { bottom: 1.75rem; right: 2rem; gap: 1.25rem; }
+
+    .mark {
+      width: 16px;
+      height: 56px;
+      display: block;
+      color: var(--ink-2);
+    }
+    .mark rect.led {
+      fill: var(--amber);
+    }
+    .mark .panel {
+      fill: currentColor;
+      opacity: 0.75;
+    }
+
+    .reg {
+      width: 12px;
+      height: 12px;
+      position: relative;
+    }
+    .reg::before, .reg::after {
+      content: "";
+      position: absolute;
+      background: var(--ink-faint);
+    }
+    .reg::before { top: 50%; left: 0; right: 0; height: 1px; }
+    .reg::after  { left: 50%; top: 0; bottom: 0; width: 1px; }
+
+    .progress {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 2px;
+      background: transparent;
+      z-index: 40;
+    }
+    .progress__bar {
+      height: 100%;
+      width: 0%;
+      background: var(--amber);
+      transition: width 420ms var(--ease);
+    }
+
+    /* ———————————————————————————————————————————————————
+       title slide
+       ——————————————————————————————————————————————————— */
+    .slide--title .wrap {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: clamp(2rem, 5vw, 5rem);
+      align-items: center;
+      width: 100%;
+      margin: auto;
+      max-width: 1400px;
+    }
+
+    .title-mark {
+      width: clamp(60px, 7vw, 96px);
+    }
+    .title-mark svg {
+      width: 100%;
+      height: auto;
+      color: var(--ink-2);
+    }
+    .title-mark svg rect.panel { opacity: 0.85; }
+    .title-mark svg rect.led   { fill: var(--amber); }
+
+    .title-word {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-variation-settings: "opsz" 144, "SOFT" 0;
+      font-size: clamp(6rem, 18vw, 16rem);
+      line-height: 0.88;
+      letter-spacing: -0.055em;
+      color: var(--paper);
+      margin: 0 0 clamp(1rem, 2.5vw, 2rem) 0;
+    }
+
+    .title-sub {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-variation-settings: "opsz" 36;
+      font-size: clamp(1.25rem, 2.2vw, 2rem);
+      line-height: 1.25;
+      color: var(--ink);
+      letter-spacing: -0.01em;
+      max-width: 38ch;
+      margin: 0 0 clamp(1.5rem, 3vw, 2.5rem) 0;
+    }
+    .title-sub em {
+      font-style: italic;
+      color: var(--amber);
+      font-variation-settings: "opsz" 36;
+    }
+
+    .title-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      color: var(--ink-dim);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .title-meta .sep {
+      width: 4px; height: 4px; border-radius: 50%;
+      background: var(--amber); display: inline-block;
+    }
+
+    /* ———————————————————————————————————————————————————
+       scene (cold open & callback)
+       ——————————————————————————————————————————————————— */
+    .slide--scene .wrap {
+      margin: auto;
+      max-width: 1200px;
+      width: 100%;
+    }
+
+    .scene-time {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(3rem, 8vw, 7rem);
+      line-height: 1;
+      letter-spacing: -0.03em;
+      color: var(--paper);
+    }
+    .scene-time em {
+      font-style: italic;
+      color: var(--amber);
+    }
+
+    .scene-main {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-variation-settings: "opsz" 72;
+      font-size: clamp(2rem, 4.5vw, 4rem);
+      line-height: 1.1;
+      letter-spacing: -0.025em;
+      color: var(--paper);
+      max-width: 22ch;
+      margin: 0;
+    }
+    .scene-main em {
+      font-style: italic;
+      color: var(--amber);
+    }
+
+    .scene-list {
+      list-style: none;
+      padding: 0 0 0 0;
+      margin: clamp(2rem, 4vw, 3rem) 0 0 0;
+      padding-top: clamp(1.5rem, 3vw, 2.25rem);
+      border-top: 1px solid var(--rule-strong);
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      max-width: 50ch;
+    }
+    .scene-list li {
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 36;
+      font-weight: 350;
+      font-size: clamp(1rem, 1.55vw, 1.4rem);
+      color: var(--ink-2);
+      line-height: 1.35;
+    }
+    .scene-list li em {
+      font-style: italic;
+      color: var(--amber);
+    }
+
+    /* ———————————————————————————————————————————————————
+       transition slide (hook)
+       ——————————————————————————————————————————————————— */
+    .slide--hook .wrap {
+      margin: auto;
+      max-width: 1200px;
+      text-align: left;
+    }
+    .hook-line {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-variation-settings: "opsz" 72;
+      font-size: clamp(2rem, 4.5vw, 4rem);
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      color: var(--paper);
+      max-width: 22ch;
+    }
+    .hook-line em {
+      font-style: italic;
+      color: var(--amber);
+    }
+    .hook-then {
+      margin-top: clamp(1.5rem, 3vw, 2rem);
+      color: var(--ink-dim);
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    /* ———————————————————————————————————————————————————
+       section divider
+       ——————————————————————————————————————————————————— */
+    .slide--divider .wrap {
+      margin: auto;
+      max-width: 1200px;
+      width: 100%;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: clamp(2rem, 6vw, 6rem);
+      align-items: center;
+    }
+
+    .roman {
+      font-family: var(--serif);
+      font-style: italic;
+      font-weight: 300;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(8rem, 22vw, 22rem);
+      line-height: 0.85;
+      color: var(--amber);
+      letter-spacing: -0.05em;
+    }
+
+    .act-title {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-variation-settings: "opsz" 72;
+      font-size: clamp(2.5rem, 5vw, 4.5rem);
+      line-height: 1.05;
+      color: var(--paper);
+      letter-spacing: -0.02em;
+      margin: 0 0 1rem 0;
+    }
+
+    .act-caption {
+      font-family: var(--serif);
+      font-style: italic;
+      font-weight: 300;
+      font-variation-settings: "opsz" 36;
+      font-size: clamp(1.1rem, 1.8vw, 1.6rem);
+      color: var(--ink-dim);
+    }
+
+    .act-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+      margin-bottom: 1.5rem;
+    }
+    .act-chip .dot {
+      width: 5px; height: 5px; border-radius: 50%; background: var(--amber);
+    }
+
+    /* ———————————————————————————————————————————————————
+       content layouts
+       ——————————————————————————————————————————————————— */
+    .content {
+      width: 100%;
+      margin: auto;
+      max-width: 1500px;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: clamp(2rem, 4vw, 3.5rem);
+    }
+
+    .content--split {
+      grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.3fr);
+      gap: clamp(2rem, 5vw, 5rem);
+      align-items: center;
+    }
+
+    .content--wide {
+      max-width: 1600px;
+    }
+
+    .heading-xl {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-variation-settings: "opsz" 72;
+      font-size: clamp(2rem, 4vw, 3.5rem);
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      color: var(--paper);
+      margin: 0;
+    }
+    .heading-xl em {
+      font-style: italic;
+      color: var(--amber);
+    }
+
+    .heading-l {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-variation-settings: "opsz" 48;
+      font-size: clamp(1.6rem, 2.8vw, 2.5rem);
+      line-height: 1.1;
+      letter-spacing: -0.015em;
+      color: var(--paper);
+      margin: 0;
+    }
+
+    .heading-m {
+      font-family: var(--serif);
+      font-weight: 400;
+      font-variation-settings: "opsz" 24;
+      font-size: clamp(1.1rem, 1.6vw, 1.35rem);
+      line-height: 1.2;
+      color: var(--paper);
+      margin: 0;
+    }
+
+    .body {
+      font-size: clamp(0.95rem, 1.1vw, 1.15rem);
+      color: var(--ink-2);
+      max-width: 60ch;
+    }
+
+    /* ———————————————————————————————————————————————————
+       cards (used sparingly)
+       ——————————————————————————————————————————————————— */
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: clamp(1rem, 1.8vw, 1.75rem);
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: clamp(1.25rem, 2vw, 2rem);
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: clamp(1.5rem, 3vw, 3rem);
+    }
+
+    .panel {
+      padding: clamp(1.25rem, 2vw, 1.75rem);
+      border: 1px solid var(--rule-strong);
+      border-radius: 2px;
+      background: linear-gradient(180deg, rgba(236,227,209,0.015), rgba(236,227,209,0.005));
+    }
+    .panel__num {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      color: var(--amber);
+      text-transform: uppercase;
+      margin-bottom: 0.75rem;
+    }
+    .panel__title {
+      font-family: var(--serif);
+      font-weight: 400;
+      font-variation-settings: "opsz" 24;
+      font-size: clamp(1rem, 1.4vw, 1.2rem);
+      color: var(--paper);
+      margin: 0 0 0.5rem 0;
+      letter-spacing: -0.01em;
+    }
+    .panel__body {
+      font-size: 0.9rem;
+      line-height: 1.45;
+      color: var(--ink-dim);
+      margin: 0;
+    }
+
+    /* ———————————————————————————————————————————————————
+       big number
+       ——————————————————————————————————————————————————— */
+    .big-num {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: clamp(2rem, 4vw, 4rem);
+      align-items: baseline;
+      width: 100%;
+      margin: auto;
+      max-width: 1400px;
+    }
+    .big-num .n {
+      font-family: var(--serif);
+      font-weight: 200;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(12rem, 32vw, 28rem);
+      line-height: 0.82;
+      letter-spacing: -0.07em;
+      color: var(--paper);
+    }
+    .big-num .n-italic {
+      font-style: italic;
+      color: var(--amber);
+    }
+    .big-num .meta {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      padding-bottom: clamp(1.5rem, 3vw, 2.5rem);
+    }
+    .big-num .meta .heading-l {
+      max-width: 16ch;
+    }
+    .big-num .meta .foot {
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 0.95rem;
+      color: var(--ink-dim);
+    }
+
+    /* ———————————————————————————————————————————————————
+       scattered tools (act I: the pain)
+       ——————————————————————————————————————————————————— */
+    .scatter {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 420px;
+    }
+    .scatter__item {
+      position: absolute;
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 36;
+      font-weight: 400;
+      color: var(--ink-dim);
+      white-space: nowrap;
+    }
+    .scatter__item.a { top: 8%;  left: 12%; font-size: 1.35rem; }
+    .scatter__item.b { top: 20%; left: 68%; font-size: 1.6rem;  color: var(--ink-2); transform: rotate(-2deg); }
+    .scatter__item.c { top: 38%; left: 6%;  font-size: 2.2rem;  color: var(--ink); font-style: italic; }
+    .scatter__item.d { top: 52%; left: 72%; font-size: 1.2rem; }
+    .scatter__item.e { top: 68%; left: 18%; font-size: 1.5rem;  color: var(--ink-2); }
+    .scatter__item.f { top: 78%; left: 58%; font-size: 1.1rem; }
+    .scatter__item.g { top: 30%; left: 40%; font-size: 1.8rem;  color: var(--ink); transform: rotate(1deg); }
+    .scatter__item.h { top: 12%; left: 44%; font-size: 1.05rem; color: var(--ink-dim); }
+    .scatter__item.i { top: 60%; left: 44%; font-size: 1.3rem;  font-style: italic; color: var(--ink-dim); }
+    .scatter__item.j { top: 88%; left: 34%; font-size: 1rem;    color: var(--ink-dim); }
+
+    .scatter__center {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-family: var(--serif);
+      font-style: italic;
+      font-variation-settings: "opsz" 72;
+      font-size: clamp(1.5rem, 2.4vw, 2.2rem);
+      color: var(--amber);
+      text-align: center;
+      padding: 0 1rem;
+    }
+
+    /* ———————————————————————————————————————————————————
+       diagram (shared SVG wrapper)
+       ——————————————————————————————————————————————————— */
+    .diagram {
+      width: 100%;
+      display: block;
+    }
+    .diagram text {
+      font-family: var(--sans);
+      font-size: 14px;
+      fill: var(--ink);
+    }
+    .diagram .node {
+      fill: var(--bg-2);
+      stroke: var(--rule-strong);
+      stroke-width: 1;
+    }
+    .diagram .node-accent {
+      fill: var(--bg-3);
+      stroke: var(--amber);
+    }
+    .diagram .node-title {
+      font-family: var(--serif);
+      font-weight: 400;
+      font-size: 18px;
+      fill: var(--paper);
+    }
+    .diagram .node-sub {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      fill: var(--ink-dim);
+    }
+    .diagram .edge {
+      stroke: var(--rule-strong);
+      stroke-width: 1;
+      fill: none;
+    }
+    .diagram .edge-accent {
+      stroke: var(--amber);
+      stroke-width: 1.4;
+    }
+    .diagram .ink { fill: var(--ink); }
+    .diagram .dim { fill: var(--ink-dim); }
+    .diagram .amber { fill: var(--amber); }
+
+    /* ———————————————————————————————————————————————————
+       two-column (generic vs personal)
+       ——————————————————————————————————————————————————— */
+    .vs {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: clamp(2rem, 4vw, 4rem);
+      align-items: stretch;
+      width: 100%;
+      margin: auto;
+      max-width: 1400px;
+    }
+    .vs__col {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    .vs__col.a { text-align: right; color: var(--ink-dim); }
+    .vs__col.b { text-align: left;  color: var(--ink); }
+    .vs__col h4 {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: inherit;
+      margin: 0;
+      opacity: 0.8;
+    }
+    .vs__col .phrase {
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 48;
+      font-weight: 300;
+      font-size: clamp(1.35rem, 2vw, 1.85rem);
+      line-height: 1.2;
+      color: inherit;
+    }
+    .vs__col.b .phrase { color: var(--paper); }
+    .vs__col.b .phrase em { color: var(--amber); font-style: italic; }
+    .vs__divider {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--serif);
+      font-style: italic;
+      font-size: 1.5rem;
+      color: var(--amber);
+    }
+    .vs__divider::before {
+      content: "";
+      width: 1px;
+      height: 100%;
+      background: var(--rule-strong);
+      position: absolute;
+    }
+
+    /* ———————————————————————————————————————————————————
+       5-layer architecture stack
+       ——————————————————————————————————————————————————— */
+    .stack {
+      display: grid;
+      grid-template-rows: repeat(5, 1fr);
+      width: 100%;
+      border: 1px solid var(--rule-strong);
+      border-left: 3px solid var(--amber);
+    }
+    .stack__row {
+      display: grid;
+      grid-template-columns: 4.5rem 1fr auto;
+      gap: clamp(1rem, 2.5vw, 2.5rem);
+      padding: clamp(0.9rem, 1.6vw, 1.4rem) clamp(1.25rem, 2.2vw, 2rem);
+      border-bottom: 1px solid var(--rule);
+      align-items: center;
+    }
+    .stack__row:last-child { border-bottom: 0; }
+    .stack__row:nth-child(odd) {
+      background: linear-gradient(90deg, rgba(236,227,209,0.018), rgba(236,227,209,0.003));
+    }
+    .stack__n {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.2em;
+      color: var(--amber);
+    }
+    .stack__label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .stack__tag {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+    }
+    .stack__name {
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 36;
+      font-weight: 400;
+      font-size: clamp(1.1rem, 1.6vw, 1.5rem);
+      color: var(--paper);
+      letter-spacing: -0.01em;
+      line-height: 1.15;
+    }
+    .stack__tech {
+      font-family: var(--mono);
+      font-size: clamp(0.7rem, 0.85vw, 0.82rem);
+      letter-spacing: 0.06em;
+      color: var(--ink-dim);
+      text-align: right;
+      max-width: 34ch;
+    }
+
+    /* ———————————————————————————————————————————————————
+       demo cue card
+       ——————————————————————————————————————————————————— */
+    .slide--demo .wrap {
+      width: 100%;
+      margin: auto;
+      max-width: 1500px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: clamp(2rem, 4vw, 4rem);
+      align-items: start;
+    }
+
+    .demo-reel {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--amber);
+    }
+    .demo-reel .live-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--amber);
+      box-shadow: 0 0 0 0 var(--amber);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(232, 144, 60, 0.4); }
+      70%  { box-shadow: 0 0 0 10px rgba(232, 144, 60, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(232, 144, 60, 0); }
+    }
+
+    .demo-num {
+      font-family: var(--serif);
+      font-weight: 200;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(7rem, 14vw, 13rem);
+      line-height: 0.82;
+      letter-spacing: -0.04em;
+      color: var(--amber);
+    }
+    .demo-num .slash {
+      color: var(--ink-faint);
+      font-style: italic;
+    }
+
+    .demo-content {
+      display: flex;
+      flex-direction: column;
+      gap: clamp(1rem, 2vw, 1.5rem);
+      padding-top: clamp(0.5rem, 2vw, 1.5rem);
+    }
+
+    .demo-title {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-variation-settings: "opsz" 72;
+      font-size: clamp(2rem, 4vw, 3.5rem);
+      line-height: 1;
+      letter-spacing: -0.02em;
+      color: var(--paper);
+      margin: 0;
+    }
+    .demo-title em { font-style: italic; color: var(--amber); }
+
+    .demo-beats {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      border-left: 1px solid var(--rule-strong);
+      padding-left: 1.5rem;
+      max-width: 48ch;
+    }
+    .demo-beats li {
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 24;
+      font-size: clamp(1rem, 1.35vw, 1.2rem);
+      line-height: 1.35;
+      color: var(--ink);
+    }
+    .demo-beats li::marker { content: ""; }
+
+    .demo-cue {
+      margin-top: 0.5rem;
+      padding: 0.85rem 1rem;
+      border: 1px dashed var(--ink-faint);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      color: var(--ink-dim);
+      max-width: 52ch;
+    }
+    .demo-cue strong { color: var(--amber); font-weight: 400; }
+
+    /* ———————————————————————————————————————————————————
+       sequence slide (python library story)
+       ——————————————————————————————————————————————————— */
+    .slide--seq .wrap {
+      width: 100%;
+      margin: auto;
+      max-width: 1100px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .seq-title {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-variation-settings: "opsz" 72;
+      font-size: clamp(1.5rem, 2.5vw, 2rem);
+      color: var(--ink);
+      margin: 0 0 2rem 0;
+      letter-spacing: -0.01em;
+    }
+
+    .seq {
+      display: flex;
+      flex-direction: column;
+    }
+    .seq-step {
+      display: grid;
+      grid-template-columns: 3rem 1fr;
+      gap: 1.5rem;
+      padding: 0.85rem 0;
+      border-bottom: 1px solid var(--rule);
+    }
+    .seq-step:last-child { border-bottom: 0; }
+
+    .seq-step .step-n {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      letter-spacing: 0.15em;
+      color: var(--ink-faint);
+      padding-top: 0.35rem;
+    }
+    .seq-step .step-t {
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 36;
+      font-weight: 350;
+      font-size: clamp(1.1rem, 1.7vw, 1.5rem);
+      color: var(--ink);
+      line-height: 1.3;
+    }
+    .seq-step .step-t em { font-style: italic; color: var(--amber); }
+    .seq-step.accent .step-n { color: var(--amber); }
+    .seq-step.accent .step-t { color: var(--paper); }
+
+    /* ———————————————————————————————————————————————————
+       pull-quote slide
+       ——————————————————————————————————————————————————— */
+    .slide--quote .wrap {
+      width: 100%;
+      margin: auto;
+      max-width: 1300px;
+      display: flex;
+      flex-direction: column;
+      gap: clamp(1.5rem, 3vw, 2.5rem);
+    }
+
+    .pull-quote {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-variation-settings: "opsz" 144;
+      font-size: clamp(2.5rem, 6vw, 5.5rem);
+      line-height: 1.02;
+      letter-spacing: -0.035em;
+      color: var(--paper);
+      margin: 0;
+      max-width: 22ch;
+    }
+    .pull-quote em {
+      font-style: italic;
+      color: var(--amber);
+    }
+
+    .pull-quote-foot {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+    }
+
+    /* ———————————————————————————————————————————————————
+       constraints list
+       ——————————————————————————————————————————————————— */
+    .log {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      max-width: 60ch;
+    }
+    .log li {
+      list-style: none;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 1.25rem;
+      align-items: baseline;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid var(--rule);
+    }
+    .log li::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      background: var(--amber);
+      transform: translateY(-2px);
+    }
+    .log li span {
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 24;
+      font-size: clamp(1rem, 1.3vw, 1.15rem);
+      color: var(--ink);
+    }
+
+    /* ———————————————————————————————————————————————————
+       one-person team
+       ——————————————————————————————————————————————————— */
+    .roles {
+      position: relative;
+      width: 100%;
+      min-height: 420px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .roles__center {
+      position: relative;
+      font-family: var(--serif);
+      font-style: italic;
+      font-variation-settings: "opsz" 72;
+      font-size: clamp(1.8rem, 3vw, 2.5rem);
+      color: var(--amber);
+      text-align: center;
+      z-index: 2;
+      padding: 1rem 2rem;
+    }
+    .roles__item {
+      position: absolute;
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 36;
+      font-weight: 400;
+      color: var(--ink);
+      font-size: clamp(0.95rem, 1.3vw, 1.2rem);
+    }
+    .roles__item.r1 { top: 8%;  left: 12%; }
+    .roles__item.r2 { top: 22%; right: 10%; font-style: italic; color: var(--ink-2); }
+    .roles__item.r3 { top: 48%; left: 4%;  color: var(--ink-2); }
+    .roles__item.r4 { top: 68%; left: 22%; font-style: italic; }
+    .roles__item.r5 { top: 82%; right: 20%; }
+    .roles__item.r6 { bottom: 10%; left: 44%; color: var(--ink-2); }
+    .roles__item.r7 { top: 12%; right: 32%; }
+    .roles__item.r8 { top: 58%; right: 6%;  color: var(--ink-2); font-style: italic; }
+
+    /* ———————————————————————————————————————————————————
+       closing slide
+       ——————————————————————————————————————————————————— */
+    .slide--close .wrap {
+      width: 100%;
+      margin: auto;
+      max-width: 1300px;
+      display: flex;
+      flex-direction: column;
+      gap: clamp(1.25rem, 2.5vw, 2rem);
+    }
+    .close-line {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-variation-settings: "opsz" 72;
+      font-size: clamp(1.5rem, 2.6vw, 2.4rem);
+      line-height: 1.25;
+      color: var(--ink);
+      max-width: 28ch;
+      margin: 0;
+    }
+    .close-line.one { color: var(--ink-dim); }
+    .close-line.two { color: var(--paper); }
+    .close-line em { font-style: italic; color: var(--amber); }
+    .close-sig {
+      margin-top: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+    }
+    .close-sig .dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--amber);
+    }
+
+    /* ———————————————————————————————————————————————————
+       overview grid
+       ——————————————————————————————————————————————————— */
+    .overview {
+      position: fixed;
+      inset: 0;
+      background: rgba(16, 10, 5, 0.96);
+      backdrop-filter: blur(10px);
+      z-index: 200;
+      padding: 3rem;
+      overflow: auto;
+      display: none;
+    }
+    .overview.open { display: block; }
+    .overview__head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+    }
+    .overview__head h3 {
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 48;
+      font-weight: 300;
+      font-size: 1.5rem;
+      color: var(--paper);
+      margin: 0;
+    }
+    .overview__head .hint {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+    }
+    .overview__grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 1rem;
+    }
+    .ov-card {
+      background: var(--bg-2);
+      border: 1px solid var(--rule);
+      padding: 1rem;
+      cursor: pointer;
+      transition: border-color 200ms var(--ease), transform 200ms var(--ease);
+      aspect-ratio: 16/9;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .ov-card:hover {
+      border-color: var(--amber);
+      transform: translateY(-2px);
+    }
+    .ov-card__n {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.15em;
+      color: var(--amber);
+    }
+    .ov-card__title {
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 24;
+      font-size: 0.95rem;
+      color: var(--paper);
+      line-height: 1.2;
+    }
+    .ov-card__act {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--ink-dim);
+    }
+
+    /* ———————————————————————————————————————————————————
+       help overlay
+       ——————————————————————————————————————————————————— */
+    .help {
+      position: fixed;
+      right: 2rem;
+      bottom: 4rem;
+      padding: 1.25rem 1.5rem;
+      background: var(--bg-2);
+      border: 1px solid var(--rule-strong);
+      z-index: 300;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--ink-dim);
+      display: none;
+      min-width: 260px;
+    }
+    .help.open { display: block; }
+    .help h5 {
+      margin: 0 0 0.75rem 0;
+      color: var(--paper);
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 24;
+      font-size: 1rem;
+      font-weight: 400;
+    }
+    .help dl {
+      margin: 0;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.5rem 1rem;
+    }
+    .help dt { color: var(--amber); }
+    .help dd { margin: 0; }
+
+    /* ———————————————————————————————————————————————————
+       presenter notes
+       ——————————————————————————————————————————————————— */
+    .notes {
+      position: fixed;
+      left: 50%;
+      bottom: 1.5rem;
+      transform: translateX(-50%);
+      max-width: 800px;
+      padding: 0.85rem 1.25rem;
+      background: rgba(26, 18, 11, 0.92);
+      border: 1px solid var(--rule-strong);
+      border-left: 3px solid var(--amber);
+      z-index: 60;
+      display: none;
+      font-family: var(--serif);
+      font-variation-settings: "opsz" 24;
+      font-size: 0.95rem;
+      color: var(--ink);
+      line-height: 1.35;
+    }
+    .notes.open { display: block; }
+    .notes::before {
+      content: "NOTE";
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.2em;
+      color: var(--amber);
+      display: block;
+      margin-bottom: 0.35rem;
+    }
+
+    /* ———————————————————————————————————————————————————
+       small screens — mostly fallback for laptop previews
+       ——————————————————————————————————————————————————— */
+    @media (max-width: 900px) {
+      .slide--title .wrap,
+      .slide--divider .wrap,
+      .slide--demo .wrap {
+        grid-template-columns: 1fr;
+      }
+      .grid-4 { grid-template-columns: repeat(2, 1fr); }
+      .grid-3 { grid-template-columns: repeat(2, 1fr); }
+      .vs     { grid-template-columns: 1fr; }
+      .big-num { grid-template-columns: 1fr; }
+    }
+
+    /* reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation: none !important;
+        transition: opacity 200ms linear !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="deck" id="deck">
+
+    <!-- ═══════════════════════════════════════════════════════
+         01 · TITLE
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--title" data-act="prologue" data-notes="Open cold. Don't read the title. Let it sit. Then start the next slide.">
+      <div class="wrap stagger">
+        <div class="title-mark">
+          <svg viewBox="0 0 48 176" aria-hidden="true">
+            <rect class="panel" x="4" y="4"   width="40" height="36" rx="1"/>
+            <rect class="panel" x="4" y="48"  width="40" height="36" rx="1"/>
+            <rect class="panel" x="4" y="92"  width="40" height="36" rx="1"/>
+            <rect class="panel" x="4" y="136" width="40" height="36" rx="1"/>
+            <rect class="led"   x="12" y="68" width="16" height="2"/>
+            <rect class="led"   x="12" y="72" width="10" height="2" opacity="0.5"/>
+          </svg>
+        </div>
+        <div>
+          <div class="eyebrow">A talk in seven acts <span class="amber">·</span> 2026</div>
+          <h1 class="title-word">TARS</h1>
+          <p class="title-sub">I built myself <em>a buddy.</em></p>
+          <div class="title-meta">
+            <span>Andichamy Gurusamy</span>
+            <span class="sep"></span>
+            <span>Microsoft</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         02 · COLD OPEN
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--scene" data-act="prologue" data-notes="Flat, not dramatic. Read the list like you're listing chores — because you were.">
+      <div class="wrap stagger">
+        <div class="eyebrow">How it started</div>
+        <p class="scene-main">Most of my week<br/>wasn't <em>the work.</em></p>
+        <ul class="scene-list">
+          <li>Rereading yesterday's standup to remember what I said.</li>
+          <li>Reassembling context across six tools every morning.</li>
+          <li>Writing the same status update three different ways.</li>
+          <li>Reviewing PRs I'd already reviewed — and forgotten.</li>
+          <li>Picking up threads I'd <em>dropped weeks ago.</em></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         03 · ACT I DIVIDER
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--divider" data-act="i" data-notes="Pause for the divider. Don't rush.">
+      <div class="wrap stagger">
+        <div class="roman">I</div>
+        <div>
+          <div class="act-chip"><span class="dot"></span> Act one</div>
+          <h2 class="act-title">The itch.</h2>
+          <div class="act-caption"><em>Scratch your own.</em></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         05 · THE PAIN (scattered tools)
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="i" data-notes="Point at this. 'My work doesn't live anywhere. It lives everywhere.' Give the audience a beat to recognize the feeling.">
+      <div class="content content--split stagger">
+        <div>
+          <div class="eyebrow">I · 01 &nbsp;·&nbsp; <span class="amber">The problem</span></div>
+          <h3 class="heading-xl" style="margin-top:1.25rem;">My work doesn't live in one place.<br/><em>And neither does my context.</em></h3>
+          <p class="body" style="margin-top:1.5rem;">Every day started with the same tax — reassembling context across a dozen surfaces, just to remember what I was doing.</p>
+        </div>
+        <div class="scatter">
+          <span class="scatter__item a">Azure DevOps</span>
+          <span class="scatter__item b">Teams threads</span>
+          <span class="scatter__item c">Outlook</span>
+          <span class="scatter__item d">Confluence</span>
+          <span class="scatter__item e">PR comments</span>
+          <span class="scatter__item f">OneNote</span>
+          <span class="scatter__item g">Chat history</span>
+          <span class="scatter__item h">sprint board</span>
+          <span class="scatter__item i">meeting notes</span>
+          <span class="scatter__item j">someone's DM</span>
+          <span class="scatter__center">me, every<br/>Monday morning</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         06 · FIRST MOVE — work items tab
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="i" data-notes="Say this matter-of-factly. 'The first thing I built wasn't AI at all.' Self-deprecating. It earned me the right to build the next thing.">
+      <div class="content content--split stagger">
+        <div>
+          <div class="eyebrow">I · 02 &nbsp;·&nbsp; First move</div>
+          <h3 class="heading-xl" style="margin-top:1.25rem;">A single view of my work.</h3>
+          <p class="body" style="margin-top:1.5rem;">Step one had nothing to do with AI. I just pulled every work item I owned — across orgs, across projects — into one tab. See it, then think about it.</p>
+          <p class="caption" style="margin-top:1rem; font-style: italic;">Boring. But it was the first time I could answer &ldquo;what am I working on?&rdquo; in under five seconds.</p>
+        </div>
+        <div>
+          <svg class="diagram" viewBox="0 0 640 400" aria-hidden="true">
+            <!-- header -->
+            <text x="24" y="36" class="node-sub">MY WORK · UNIFIED</text>
+            <line x1="24" x2="616" y1="54" y2="54" class="edge"/>
+
+            <!-- rows -->
+            <g transform="translate(24, 80)">
+              <circle cx="10" cy="12" r="4" class="amber"/>
+              <text x="28" y="16" class="ink">Enable sprint velocity metrics</text>
+              <text x="520" y="16" class="dim" text-anchor="end" style="font-family: var(--mono); font-size: 11px;">ENGINEERING · 411043</text>
+            </g>
+            <g transform="translate(24, 120)">
+              <circle cx="10" cy="12" r="4" fill="var(--ink-dim)"/>
+              <text x="28" y="16" class="ink">Review @aggarwal-aashay PR</text>
+              <text x="520" y="16" class="dim" text-anchor="end" style="font-family: var(--mono); font-size: 11px;">FRONTEND · 208114</text>
+            </g>
+            <g transform="translate(24, 160)">
+              <circle cx="10" cy="12" r="4" fill="var(--ink-dim)"/>
+              <text x="28" y="16" class="ink">M365 adapter: refresh token path</text>
+              <text x="520" y="16" class="dim" text-anchor="end" style="font-family: var(--mono); font-size: 11px;">MSTEAMS · 398121</text>
+            </g>
+            <g transform="translate(24, 200)">
+              <circle cx="10" cy="12" r="4" class="amber"/>
+              <text x="28" y="16" class="ink">Fix flaky e2e: sprint-board.spec</text>
+              <text x="520" y="16" class="dim" text-anchor="end" style="font-family: var(--mono); font-size: 11px;">TEAMSPACE · 412008</text>
+            </g>
+            <g transform="translate(24, 240)">
+              <circle cx="10" cy="12" r="4" fill="var(--ink-dim)"/>
+              <text x="28" y="16" class="ink">Sync cadence for shared queue</text>
+              <text x="520" y="16" class="dim" text-anchor="end" style="font-family: var(--mono); font-size: 11px;">ENGINEERING · 411901</text>
+            </g>
+            <g transform="translate(24, 280)">
+              <circle cx="10" cy="12" r="4" fill="var(--ink-faint)"/>
+              <text x="28" y="16" class="dim">1:1 prep — Vishal, Thursday</text>
+              <text x="520" y="16" class="dim" text-anchor="end" style="font-family: var(--mono); font-size: 11px;">PERSONAL</text>
+            </g>
+
+            <line x1="24" x2="616" y1="340" y2="340" class="edge"/>
+            <text x="24" y="366" class="node-sub">6 items · 2 orgs · 4 projects</text>
+            <text x="616" y="366" class="node-sub" text-anchor="end" style="fill: var(--amber);">ONE VIEW</text>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         07 · MAPPING WORKFLOWS
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="i" data-notes="Walk them through it. 'I mapped every recurring thing I did in a week. Some of it was mine to do. Some of it just… wasn't.'">
+      <div class="content content--split stagger">
+        <div>
+          <div class="eyebrow">I · 03 &nbsp;·&nbsp; The map</div>
+          <h3 class="heading-xl" style="margin-top:1.25rem;">What do I <em>actually</em> do every week?</h3>
+          <p class="body" style="margin-top:1.5rem;">I wrote every recurring task on a page. Standups. Reviews. Briefings. Planning. Status rollups. Then asked the uncomfortable question:</p>
+          <p class="body" style="margin-top:1rem; color: var(--amber); font-style: italic; font-family: var(--serif); font-size: clamp(1.1rem, 1.6vw, 1.4rem);">&ldquo;Which of these is actually mine to do?&rdquo;</p>
+        </div>
+        <div>
+          <svg class="diagram" viewBox="0 0 640 420" aria-hidden="true">
+            <defs>
+              <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-dim)"/>
+              </marker>
+            </defs>
+
+            <!-- center: me -->
+            <circle cx="320" cy="210" r="44" class="node-accent"/>
+            <text x="320" y="207" text-anchor="middle" class="node-title" style="font-style: italic;">me</text>
+            <text x="320" y="224" text-anchor="middle" class="node-sub">7 DAYS</text>
+
+            <!-- nodes around -->
+            <g data-n="standup">
+              <circle cx="130" cy="100" r="34" class="node"/>
+              <text x="130" y="97" text-anchor="middle" class="ink">standup</text>
+              <text x="130" y="112" text-anchor="middle" class="dim" style="font-size: 11px;">9:30 daily</text>
+            </g>
+            <g data-n="plan">
+              <circle cx="510" cy="100" r="34" class="node" fill="var(--bg-3)" stroke="var(--amber)"/>
+              <text x="510" y="97" text-anchor="middle" class="ink">sprint plan</text>
+              <text x="510" y="112" text-anchor="middle" class="amber" style="font-size: 11px;">candidate</text>
+            </g>
+            <g data-n="reviews">
+              <circle cx="80" cy="210" r="34" class="node" fill="var(--bg-3)" stroke="var(--amber)"/>
+              <text x="80" y="207" text-anchor="middle" class="ink">PR reviews</text>
+              <text x="80" y="222" text-anchor="middle" class="amber" style="font-size: 11px;">candidate</text>
+            </g>
+            <g data-n="brief">
+              <circle cx="560" cy="210" r="34" class="node" fill="var(--bg-3)" stroke="var(--amber)"/>
+              <text x="560" y="207" text-anchor="middle" class="ink">briefing</text>
+              <text x="560" y="222" text-anchor="middle" class="amber" style="font-size: 11px;">candidate</text>
+            </g>
+            <g data-n="1on1">
+              <circle cx="130" cy="320" r="34" class="node"/>
+              <text x="130" y="317" text-anchor="middle" class="ink">1:1 prep</text>
+              <text x="130" y="332" text-anchor="middle" class="dim" style="font-size: 11px;">weekly</text>
+            </g>
+            <g data-n="context">
+              <circle cx="510" cy="320" r="34" class="node" fill="var(--bg-3)" stroke="var(--amber)"/>
+              <text x="510" y="317" text-anchor="middle" class="ink">context</text>
+              <text x="510" y="332" text-anchor="middle" class="amber" style="font-size: 11px;">candidate</text>
+            </g>
+            <g data-n="code">
+              <circle cx="320" cy="370" r="32" class="node"/>
+              <text x="320" y="367" text-anchor="middle" class="ink">write code</text>
+              <text x="320" y="382" text-anchor="middle" class="dim" style="font-size: 11px;">mine</text>
+            </g>
+
+            <!-- edges -->
+            <g fill="none" stroke="var(--ink-faint)" stroke-width="1">
+              <line x1="165"  y1="120" x2="280"  y2="190" marker-end="url(#arr)"/>
+              <line x1="475"  y1="120" x2="360"  y2="190" marker-end="url(#arr)" stroke="var(--amber)" opacity="0.6"/>
+              <line x1="115"  y1="210" x2="275"  y2="210" marker-end="url(#arr)" stroke="var(--amber)" opacity="0.6"/>
+              <line x1="525"  y1="210" x2="365"  y2="210" marker-end="url(#arr)" stroke="var(--amber)" opacity="0.6"/>
+              <line x1="165"  y1="300" x2="280"  y2="230" marker-end="url(#arr)"/>
+              <line x1="475"  y1="300" x2="360"  y2="230" marker-end="url(#arr)" stroke="var(--amber)" opacity="0.6"/>
+              <line x1="320"  y1="338" x2="320"  y2="260" marker-end="url(#arr)"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         08 · THE HINGE
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--quote" data-act="i" data-notes="Land on this. The hinge. Pause after, then: 'That question turned out to be the whole project.'">
+      <div class="wrap stagger">
+        <div class="eyebrow">I · 04 &nbsp;·&nbsp; The hinge</div>
+        <p class="pull-quote">What if the tools could <em>think</em> about my work —<br/>not just store it?</p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         09 · ACT II DIVIDER
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--divider" data-act="ii" data-notes="Act two. From tools to intelligence.">
+      <div class="wrap stagger">
+        <div class="roman">II</div>
+        <div>
+          <div class="act-chip"><span class="dot"></span> Act two</div>
+          <h2 class="act-title">From tools to <em>intelligence.</em></h2>
+          <div class="act-caption">Building the memory layer underneath.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         10 · KNOWLEDGE ENGINE ARCHITECTURE
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="ii" data-notes="Walk this left to right. 'Every surface I care about becomes a source. One ingestion path. One knowledge layer. Many faces.'">
+      <div class="content stagger">
+        <div>
+          <div class="eyebrow">II · 01 &nbsp;·&nbsp; The knowledge engine</div>
+          <h3 class="heading-xl" style="margin-top:1rem; max-width: 26ch;">One memory. <em>Many faces.</em></h3>
+        </div>
+        <div>
+          <svg class="diagram" viewBox="0 0 1400 460" aria-hidden="true">
+            <defs>
+              <marker id="arr2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-dim)"/>
+              </marker>
+              <marker id="arr2a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--amber)"/>
+              </marker>
+            </defs>
+
+            <!-- sources -->
+            <g transform="translate(40, 40)">
+              <text class="node-sub" y="0">SOURCES</text>
+              <g transform="translate(0, 30)">
+                <rect class="node" width="200" height="44" rx="2"/>
+                <text class="ink" x="100" y="28" text-anchor="middle">Azure DevOps</text>
+              </g>
+              <g transform="translate(0, 90)">
+                <rect class="node" width="200" height="44" rx="2"/>
+                <text class="ink" x="100" y="28" text-anchor="middle">Teams · Outlook</text>
+              </g>
+              <g transform="translate(0, 150)">
+                <rect class="node" width="200" height="44" rx="2"/>
+                <text class="ink" x="100" y="28" text-anchor="middle">Code · PRs · commits</text>
+              </g>
+              <g transform="translate(0, 210)">
+                <rect class="node" width="200" height="44" rx="2"/>
+                <text class="ink" x="100" y="28" text-anchor="middle">Docs · notes</text>
+              </g>
+              <g transform="translate(0, 270)">
+                <rect class="node" width="200" height="44" rx="2"/>
+                <text class="ink" x="100" y="28" text-anchor="middle">Meeting transcripts</text>
+              </g>
+            </g>
+
+            <!-- edges to ingest -->
+            <g fill="none" stroke="var(--ink-faint)" stroke-width="1">
+              <path d="M 240 92 C 320 92 320 200 440 200" marker-end="url(#arr2)"/>
+              <path d="M 240 152 C 320 152 320 220 440 220" marker-end="url(#arr2)"/>
+              <path d="M 240 212 C 320 212 320 240 440 240" marker-end="url(#arr2)"/>
+              <path d="M 240 272 C 320 272 320 260 440 260" marker-end="url(#arr2)"/>
+              <path d="M 240 332 C 320 332 320 280 440 280" marker-end="url(#arr2)"/>
+            </g>
+
+            <!-- ingest column -->
+            <g transform="translate(440, 180)">
+              <text class="node-sub" y="-16">INGEST</text>
+              <rect class="node" width="160" height="120" rx="2"/>
+              <text class="ink" x="80" y="50" text-anchor="middle" style="font-family: var(--serif); font-size: 15px;">parse</text>
+              <text class="ink" x="80" y="76" text-anchor="middle" style="font-family: var(--serif); font-size: 15px;">embed</text>
+              <text class="ink" x="80" y="102" text-anchor="middle" style="font-family: var(--serif); font-size: 15px;">link</text>
+            </g>
+
+            <!-- arrow to core -->
+            <g fill="none" stroke="var(--amber)" stroke-width="1.4">
+              <line x1="600" y1="240" x2="720" y2="240" marker-end="url(#arr2a)"/>
+            </g>
+
+            <!-- knowledge core -->
+            <g transform="translate(720, 120)">
+              <text class="node-sub" y="-16" style="fill: var(--amber);">KNOWLEDGE LAYER</text>
+              <rect class="node-accent" width="260" height="240" rx="2" stroke-width="1.4"/>
+              <text x="130" y="100" text-anchor="middle" class="ink" style="font-family: var(--serif); font-style: italic; font-size: 28px; fill: var(--paper);">memory</text>
+              <line x1="20" y1="130" x2="240" y2="130" stroke="var(--rule-strong)" stroke-width="1"/>
+              <text x="130" y="160" text-anchor="middle" class="dim" style="font-size: 12px; font-family: var(--mono);">vectors · relations</text>
+              <text x="130" y="182" text-anchor="middle" class="dim" style="font-size: 12px; font-family: var(--mono);">people · projects</text>
+              <text x="130" y="204" text-anchor="middle" class="dim" style="font-size: 12px; font-family: var(--mono);">history · intent</text>
+            </g>
+
+            <!-- arrows to surfaces -->
+            <g fill="none" stroke="var(--ink-faint)" stroke-width="1">
+              <path d="M 980 160 C 1080 160 1080 92  1160 92"  marker-end="url(#arr2)"/>
+              <path d="M 980 200 C 1080 200 1080 180 1160 180" marker-end="url(#arr2)"/>
+              <path d="M 980 240 C 1080 240 1080 268 1160 268" marker-end="url(#arr2)"/>
+              <path d="M 980 280 C 1080 280 1080 356 1160 356" marker-end="url(#arr2)"/>
+            </g>
+
+            <!-- surfaces -->
+            <g transform="translate(1160, 40)">
+              <text class="node-sub" y="0">SURFACES</text>
+              <g transform="translate(0, 30)">
+                <rect class="node" width="200" height="44" rx="2"/>
+                <text class="ink" x="100" y="28" text-anchor="middle">Standup prep</text>
+              </g>
+              <g transform="translate(0, 120)">
+                <rect class="node" width="200" height="44" rx="2"/>
+                <text class="ink" x="100" y="28" text-anchor="middle">Daily briefing</text>
+              </g>
+              <g transform="translate(0, 210)">
+                <rect class="node" width="200" height="44" rx="2"/>
+                <text class="ink" x="100" y="28" text-anchor="middle">Project planner</text>
+              </g>
+              <g transform="translate(0, 300)">
+                <rect class="node" width="200" height="44" rx="2"/>
+                <text class="ink" x="100" y="28" text-anchor="middle">Context synthesis</text>
+              </g>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         11 · USE CASES
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="ii" data-notes="Four things the knowledge layer unlocked. Read the cards, don't read them all.">
+      <div class="content stagger">
+        <div>
+          <div class="eyebrow">II · 02 &nbsp;·&nbsp; What it unlocked</div>
+          <h3 class="heading-xl" style="margin-top:1rem;">Not features. <em>Moments.</em></h3>
+        </div>
+        <div class="grid-4">
+          <div class="panel">
+            <div class="panel__num">01</div>
+            <h4 class="panel__title">Standup, cold-started.</h4>
+            <p class="panel__body">&ldquo;What did I ship yesterday? What's on me today? Any blockers I forgot?&rdquo; Thirty seconds. No scrolling.</p>
+          </div>
+          <div class="panel">
+            <div class="panel__num">02</div>
+            <h4 class="panel__title">The morning read.</h4>
+            <p class="panel__body">A briefing that actually knows my sprint, my reviews, my threads — and distinguishes signal from decoration.</p>
+          </div>
+          <div class="panel">
+            <div class="panel__num">03</div>
+            <h4 class="panel__title">Planning without the tax.</h4>
+            <p class="panel__body">Ask for a plan on any feature and it pulls real history — past PRs, the right people, the landmines.</p>
+          </div>
+          <div class="panel">
+            <div class="panel__num">04</div>
+            <h4 class="panel__title">Context, on tap.</h4>
+            <p class="panel__body">&ldquo;What's the story on the auth rewrite?&rdquo; Answered from six sources. In my voice. With links.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         12 · ACT III DIVIDER
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--divider" data-act="iii" data-notes="The pivot point of the talk. From knowing to doing.">
+      <div class="wrap stagger">
+        <div class="roman">III</div>
+        <div>
+          <div class="act-chip"><span class="dot"></span> Act three</div>
+          <h2 class="act-title">From <em>knowing</em> to <em>doing.</em></h2>
+          <div class="act-caption">If the machine understands the work, can it do the work?</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         13 · PLANNER → CODER PIPELINE
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="iii" data-notes="'First attempt: split the problem. One agent to plan. One to code.'">
+      <div class="content stagger">
+        <div>
+          <div class="eyebrow">III · 01 &nbsp;·&nbsp; First attempt</div>
+          <h3 class="heading-xl" style="margin-top:1rem; max-width: 30ch;">Split the problem. <em>Plan, then code.</em></h3>
+        </div>
+        <div>
+          <svg class="diagram" viewBox="0 0 1400 320" aria-hidden="true">
+            <defs>
+              <marker id="arr3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--amber)"/>
+              </marker>
+            </defs>
+
+            <!-- ticket -->
+            <g transform="translate(40, 110)">
+              <rect class="node" width="180" height="100" rx="2"/>
+              <text class="node-sub" x="90" y="28" text-anchor="middle">WORK ITEM</text>
+              <text class="ink" x="90" y="60" text-anchor="middle" style="font-family: var(--serif); font-size: 20px; fill: var(--paper);">ADO · 411043</text>
+              <text class="dim" x="90" y="82" text-anchor="middle" style="font-size: 12px;">one line of intent</text>
+            </g>
+
+            <line x1="220" x2="310" y1="160" y2="160" stroke="var(--amber)" stroke-width="1.4" marker-end="url(#arr3)"/>
+
+            <!-- planner -->
+            <g transform="translate(310, 60)">
+              <rect class="node-accent" width="240" height="200" rx="2" stroke-width="1.4"/>
+              <text class="node-sub" x="120" y="28" text-anchor="middle" style="fill: var(--amber);">PLANNER</text>
+              <text class="ink" x="120" y="68" text-anchor="middle" style="font-family: var(--serif); font-size: 22px; fill: var(--paper);">decompose</text>
+              <line x1="30" y1="90" x2="210" y2="90" stroke="var(--rule-strong)"/>
+              <text class="dim" x="120" y="118" text-anchor="middle" style="font-size: 12px; font-family: var(--mono);">read code · history</text>
+              <text class="dim" x="120" y="138" text-anchor="middle" style="font-size: 12px; font-family: var(--mono);">draft steps</text>
+              <text class="dim" x="120" y="158" text-anchor="middle" style="font-size: 12px; font-family: var(--mono);">hand off</text>
+            </g>
+
+            <line x1="550" x2="640" y1="160" y2="160" stroke="var(--amber)" stroke-width="1.4" marker-end="url(#arr3)"/>
+
+            <!-- coder -->
+            <g transform="translate(640, 60)">
+              <rect class="node-accent" width="240" height="200" rx="2" stroke-width="1.4"/>
+              <text class="node-sub" x="120" y="28" text-anchor="middle" style="fill: var(--amber);">CODER</text>
+              <text class="ink" x="120" y="68" text-anchor="middle" style="font-family: var(--serif); font-size: 22px; fill: var(--paper);">implement</text>
+              <line x1="30" y1="90" x2="210" y2="90" stroke="var(--rule-strong)"/>
+              <text class="dim" x="120" y="118" text-anchor="middle" style="font-size: 12px; font-family: var(--mono);">branch · commit</text>
+              <text class="dim" x="120" y="138" text-anchor="middle" style="font-size: 12px; font-family: var(--mono);">worktree isolation</text>
+              <text class="dim" x="120" y="158" text-anchor="middle" style="font-size: 12px; font-family: var(--mono);">push</text>
+            </g>
+
+            <line x1="880" x2="970" y1="160" y2="160" stroke="var(--amber)" stroke-width="1.4" marker-end="url(#arr3)"/>
+
+            <!-- draft PR -->
+            <g transform="translate(970, 110)">
+              <rect class="node" width="180" height="100" rx="2"/>
+              <text class="node-sub" x="90" y="28" text-anchor="middle">DRAFT PR</text>
+              <text class="ink" x="90" y="60" text-anchor="middle" style="font-family: var(--serif); font-size: 20px; fill: var(--paper);">opens for review</text>
+              <text class="dim" x="90" y="82" text-anchor="middle" style="font-size: 12px;">guardrail: always draft</text>
+            </g>
+
+            <!-- human -->
+            <g transform="translate(1200, 110)">
+              <rect class="node" width="160" height="100" rx="2" stroke="var(--ink-dim)"/>
+              <text class="node-sub" x="80" y="28" text-anchor="middle">HUMAN</text>
+              <text class="ink" x="80" y="60" text-anchor="middle" style="font-family: var(--serif); font-style: italic; font-size: 18px;">me, reviewing</text>
+              <text class="dim" x="80" y="82" text-anchor="middle" style="font-size: 12px;">approve · merge</text>
+            </g>
+
+            <line x1="1150" x2="1200" y1="160" y2="160" stroke="var(--ink-faint)" stroke-width="1"/>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         14 · THE NUMBER
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="iii" data-notes="Say this with a small smile. 'And then one weekend—' pause. 'nineteen draft PRs. Two days.' pause. 'Most were bad. Some were real.'">
+      <div class="big-num stagger">
+        <div>
+          <div class="n"><span class="n-italic">19</span></div>
+        </div>
+        <div class="meta">
+          <div class="eyebrow">III · 02 &nbsp;·&nbsp; The proof</div>
+          <h3 class="heading-l">draft PRs <em style="color:var(--amber); font-style: italic;">in forty-eight hours.</em></h3>
+          <div class="foot">All real. And none of them <span style="color: var(--amber);">were me.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         15 · NEW BOTTLENECK
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="iii" data-notes="The problem didn't go away — it moved. This is the setup for the executor.">
+      <div class="content content--split stagger">
+        <div>
+          <div class="eyebrow">III · 03 &nbsp;·&nbsp; The bottleneck moved</div>
+          <h3 class="heading-xl" style="margin-top:1rem;">I fixed one problem.<br/><em>I became another.</em></h3>
+          <p class="body" style="margin-top:1.5rem;">The agents could write code. I couldn't read it fast enough. The pile grew daily. I was back where I started — just on a different side of the PR page.</p>
+        </div>
+        <div>
+          <svg class="diagram" viewBox="0 0 640 440" aria-hidden="true">
+            <!-- stacked PRs -->
+            <g transform="translate(60, 40)">
+              <text class="node-sub" y="0">DRAFT PRS WAITING</text>
+              <g transform="translate(0, 30)">
+                <rect class="node" width="320" height="34" rx="2"/>
+                <text class="ink" x="20" y="22">#4102 · rename worktree slots</text>
+              </g>
+              <g transform="translate(10, 74)">
+                <rect class="node" width="320" height="34" rx="2"/>
+                <text class="ink" x="20" y="22">#4109 · executor idempotency</text>
+              </g>
+              <g transform="translate(20, 118)">
+                <rect class="node" width="320" height="34" rx="2"/>
+                <text class="ink" x="20" y="22">#4115 · run-scope keys</text>
+              </g>
+              <g transform="translate(30, 162)">
+                <rect class="node" width="320" height="34" rx="2"/>
+                <text class="ink" x="20" y="22">#4121 · briefing skeleton</text>
+              </g>
+              <g transform="translate(40, 206)">
+                <rect class="node" width="320" height="34" rx="2"/>
+                <text class="ink" x="20" y="22">#4130 · verify-worker reset</text>
+              </g>
+              <g transform="translate(50, 250)">
+                <rect class="node" width="320" height="34" rx="2"/>
+                <text class="ink" x="20" y="22">#4133 · ADO state transitions</text>
+              </g>
+              <g transform="translate(60, 294)">
+                <rect class="node" width="320" height="34" rx="2"/>
+                <text class="dim" x="20" y="22">...</text>
+              </g>
+              <g transform="translate(70, 338)">
+                <rect class="node" width="320" height="34" rx="2"/>
+                <text class="dim" x="20" y="22">+ 12 more</text>
+              </g>
+            </g>
+
+            <!-- me, swamped -->
+            <g transform="translate(460, 200)">
+              <circle cx="50" cy="0" r="30" class="node-accent"/>
+              <text x="50" y="4" text-anchor="middle" class="ink" style="font-family: var(--serif); font-style: italic; font-size: 18px;">me</text>
+              <path d="M 20 -30 L 40 -60 L 20 -60" stroke="var(--amber)" fill="none" stroke-width="1.4"/>
+              <path d="M 80 -30 L 60 -60 L 80 -60" stroke="var(--amber)" fill="none" stroke-width="1.4"/>
+            </g>
+
+            <text x="510" y="280" text-anchor="middle" class="amber" style="font-family: var(--serif); font-style: italic; font-size: 14px;">bottleneck</text>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         16 · THE EXECUTOR LOOP
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="iii" data-notes="'So I built a third agent. Its job isn't to plan, or to code. Its job is to *finish*.'">
+      <div class="content content--split stagger">
+        <div>
+          <div class="eyebrow">III · 04 &nbsp;·&nbsp; The executor</div>
+          <h3 class="heading-xl" style="margin-top:1rem;">Not one agent.<br/><em>A state machine that runs four.</em></h3>
+          <p class="body" style="margin-top:1.5rem;">Plan &rarr; code &rarr; review &rarr; verify &rarr; submit. Each phase dispatches its own agent. Blockers at review loop back to code. Failures at verify loop back to code.</p>
+          <p class="caption" style="margin-top:1rem; font-style: italic;">Humans only open gates when the machine can't continue.</p>
+        </div>
+        <div>
+          <svg class="diagram" viewBox="0 0 780 500" aria-hidden="true">
+            <defs>
+              <marker id="arr4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--amber)"/>
+              </marker>
+              <marker id="arr4dim" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ember)"/>
+              </marker>
+              <marker id="arr4faint" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-dim)"/>
+              </marker>
+            </defs>
+
+            <!-- Gate row (conditional human gates) -->
+            <text x="390" y="34" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.22em;">HUMAN GATES &middot; OPEN ONLY ON FAILURE</text>
+
+            <g transform="translate(30, 56)">
+              <rect width="120" height="26" rx="13" fill="transparent" stroke="var(--ink-faint)" stroke-dasharray="3 3" stroke-width="1"/>
+              <text x="60" y="17" text-anchor="middle" class="dim" style="font-size: 10px; font-family: var(--mono);">plan-approval</text>
+            </g>
+            <g transform="translate(180, 56)">
+              <rect width="120" height="26" rx="13" fill="transparent" stroke="var(--ink-faint)" stroke-dasharray="3 3" stroke-width="1"/>
+              <text x="60" y="17" text-anchor="middle" class="dim" style="font-size: 10px; font-family: var(--mono);">impl-retry</text>
+            </g>
+            <g transform="translate(330, 56)">
+              <rect width="120" height="26" rx="13" fill="transparent" stroke="var(--ink-faint)" stroke-dasharray="3 3" stroke-width="1"/>
+              <text x="60" y="17" text-anchor="middle" class="dim" style="font-size: 10px; font-family: var(--mono);">review-caps</text>
+            </g>
+            <g transform="translate(480, 56)">
+              <rect width="120" height="26" rx="13" fill="transparent" stroke="var(--ink-faint)" stroke-dasharray="3 3" stroke-width="1"/>
+              <text x="60" y="17" text-anchor="middle" class="dim" style="font-size: 10px; font-family: var(--mono);">verify-caps</text>
+            </g>
+
+            <!-- Dashed connectors from gates to phases -->
+            <g fill="none" stroke="var(--ink-faint)" stroke-width="1" stroke-dasharray="2 3">
+              <line x1="90" x2="90" y1="82" y2="170"/>
+              <line x1="240" x2="240" y1="82" y2="170"/>
+              <line x1="390" x2="390" y1="82" y2="170"/>
+              <line x1="540" x2="540" y1="82" y2="170"/>
+            </g>
+
+            <!-- Phase boxes -->
+            <g transform="translate(30, 170)">
+              <rect width="120" height="70" rx="3" class="node-accent" stroke-width="1.4"/>
+              <text x="60" y="26" text-anchor="middle" class="node-sub" style="fill: var(--amber);">01</text>
+              <text x="60" y="50" text-anchor="middle" class="ink" style="font-family: var(--serif); font-size: 16px; fill: var(--paper);">plan</text>
+            </g>
+            <g transform="translate(180, 170)">
+              <rect width="120" height="70" rx="3" class="node-accent" stroke-width="1.4"/>
+              <text x="60" y="26" text-anchor="middle" class="node-sub" style="fill: var(--amber);">02</text>
+              <text x="60" y="50" text-anchor="middle" class="ink" style="font-family: var(--serif); font-size: 16px; fill: var(--paper);">code</text>
+            </g>
+            <g transform="translate(330, 170)">
+              <rect width="120" height="70" rx="3" class="node-accent" stroke-width="1.4"/>
+              <text x="60" y="26" text-anchor="middle" class="node-sub" style="fill: var(--amber);">03</text>
+              <text x="60" y="50" text-anchor="middle" class="ink" style="font-family: var(--serif); font-size: 16px; fill: var(--paper);">review</text>
+            </g>
+            <g transform="translate(480, 170)">
+              <rect width="120" height="70" rx="3" class="node-accent" stroke-width="1.4"/>
+              <text x="60" y="26" text-anchor="middle" class="node-sub" style="fill: var(--amber);">04</text>
+              <text x="60" y="50" text-anchor="middle" class="ink" style="font-family: var(--serif); font-size: 16px; fill: var(--paper);">verify</text>
+            </g>
+            <g transform="translate(630, 170)">
+              <rect width="120" height="70" rx="3" class="node" stroke="var(--amber)"/>
+              <text x="60" y="26" text-anchor="middle" class="node-sub" style="fill: var(--amber);">05</text>
+              <text x="60" y="50" text-anchor="middle" class="ink" style="font-family: var(--serif); font-size: 16px; fill: var(--paper);">submit</text>
+            </g>
+
+            <!-- Forward arrows -->
+            <g fill="none" stroke="var(--amber)" stroke-width="1.4">
+              <line x1="150" x2="180" y1="205" y2="205" marker-end="url(#arr4)"/>
+              <line x1="300" x2="330" y1="205" y2="205" marker-end="url(#arr4)"/>
+              <line x1="450" x2="480" y1="205" y2="205" marker-end="url(#arr4)"/>
+              <line x1="600" x2="630" y1="205" y2="205" marker-end="url(#arr4)"/>
+            </g>
+
+            <!-- Agent dispatches below each phase (tiny labels) -->
+            <g>
+              <text x="90"  y="262" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em;">→ PLANNER</text>
+              <text x="240" y="262" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em;">→ CODER</text>
+              <text x="390" y="262" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em;">→ REVIEWER</text>
+              <text x="540" y="262" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em;">→ VERIFIER</text>
+              <text x="690" y="262" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em;">→ DRAFT PR</text>
+            </g>
+
+            <!-- Loopback: review → code (shallower arc) -->
+            <path d="M 390 320 C 390 345 240 345 240 320" fill="none" stroke="var(--ember)" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#arr4dim)"/>
+            <text x="315" y="365" text-anchor="middle" class="dim" style="font-size: 10px; font-family: var(--mono); letter-spacing: 0.18em; fill: var(--ember);">ON BLOCKERS &middot; RECODE</text>
+
+            <!-- Loopback: verify → code (deeper arc) -->
+            <path d="M 540 320 C 540 410 240 410 240 320" fill="none" stroke="var(--ember)" stroke-width="1" stroke-dasharray="3 3" marker-end="url(#arr4dim)"/>
+            <text x="390" y="430" text-anchor="middle" class="dim" style="font-size: 10px; font-family: var(--mono); letter-spacing: 0.18em; fill: var(--ember);">ON VERIFY FAIL &middot; RECODE</text>
+
+            <!-- Connector stubs from boxes to loopbacks -->
+            <g fill="none" stroke="var(--ember)" stroke-width="1" stroke-dasharray="3 3">
+              <line x1="390" x2="390" y1="280" y2="320"/>
+              <line x1="540" x2="540" y1="280" y2="320"/>
+              <line x1="240" x2="240" y1="320" y2="280"/>
+            </g>
+
+            <!-- Bottom summary -->
+            <line x1="30" y1="462" x2="750" y2="462" stroke="var(--rule-strong)" stroke-width="1"/>
+            <text x="390" y="484" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 10px; letter-spacing: 0.22em;">EVENT-SOURCED &middot; RESUMABLE &middot; IDEMPOTENT</text>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         17 · FULL PIPELINE
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="iii" data-notes="'Autonomy on a leash. The agent goes. The human stays in the loop at the gate.'">
+      <div class="content stagger">
+        <div>
+          <div class="eyebrow">III · 05 &nbsp;·&nbsp; The full picture</div>
+          <h3 class="heading-xl" style="margin-top:1rem;">Autonomy on a <em>leash.</em></h3>
+        </div>
+        <div>
+          <svg class="diagram" viewBox="0 0 1400 320" aria-hidden="true">
+            <defs>
+              <marker id="arr5" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--amber)"/>
+              </marker>
+            </defs>
+
+            <g>
+              <!-- Inbox -->
+              <g transform="translate(30, 90)">
+                <rect class="node" width="150" height="140" rx="2"/>
+                <text class="node-sub" x="75" y="28" text-anchor="middle">INBOX</text>
+                <text class="ink" x="75" y="68" text-anchor="middle" style="font-family: var(--serif); font-size: 17px;">ADO item</text>
+                <text class="dim" x="75" y="92" text-anchor="middle" style="font-size: 11px;">auto-picked</text>
+                <text class="dim" x="75" y="110" text-anchor="middle" style="font-size: 11px;">one line of intent</text>
+              </g>
+
+              <!-- Executor (wraps the state machine) -->
+              <g transform="translate(230, 50)">
+                <rect class="node-accent" width="620" height="220" rx="2" stroke-width="1.4"/>
+                <text class="node-sub" x="310" y="30" text-anchor="middle" style="fill: var(--amber);">EXECUTOR &nbsp;·&nbsp; AUTONOMOUS STATE MACHINE</text>
+
+                <!-- inner phase pills (5, tighter spacing) -->
+                <g transform="translate(20, 58)">
+                  <rect width="108" height="48" rx="3" class="node" fill="var(--bg-2)"/>
+                  <text x="54" y="20" text-anchor="middle" class="node-sub" style="font-size: 9px;">01</text>
+                  <text x="54" y="38" text-anchor="middle" class="ink" style="font-family: var(--serif); font-size: 14px;">plan</text>
+                </g>
+                <g transform="translate(140, 58)">
+                  <rect width="108" height="48" rx="3" class="node" fill="var(--bg-2)"/>
+                  <text x="54" y="20" text-anchor="middle" class="node-sub" style="font-size: 9px;">02</text>
+                  <text x="54" y="38" text-anchor="middle" class="ink" style="font-family: var(--serif); font-size: 14px;">code</text>
+                </g>
+                <g transform="translate(260, 58)">
+                  <rect width="108" height="48" rx="3" class="node" fill="var(--bg-2)"/>
+                  <text x="54" y="20" text-anchor="middle" class="node-sub" style="font-size: 9px;">03</text>
+                  <text x="54" y="38" text-anchor="middle" class="ink" style="font-family: var(--serif); font-size: 14px;">review</text>
+                </g>
+                <g transform="translate(380, 58)">
+                  <rect width="108" height="48" rx="3" class="node" fill="var(--bg-2)"/>
+                  <text x="54" y="20" text-anchor="middle" class="node-sub" style="font-size: 9px;">04</text>
+                  <text x="54" y="38" text-anchor="middle" class="ink" style="font-family: var(--serif); font-size: 14px;">verify</text>
+                </g>
+                <g transform="translate(500, 58)">
+                  <rect width="108" height="48" rx="3" class="node" fill="var(--bg-2)" stroke="var(--amber)"/>
+                  <text x="54" y="20" text-anchor="middle" class="node-sub" style="font-size: 9px; fill: var(--amber);">05</text>
+                  <text x="54" y="38" text-anchor="middle" class="ink" style="font-family: var(--serif); font-size: 14px; fill: var(--paper);">submit</text>
+                </g>
+
+                <!-- inner forward arrows -->
+                <g fill="none" stroke="var(--amber)" stroke-width="1.2">
+                  <line x1="128" x2="140" y1="82" y2="82" marker-end="url(#arr5)"/>
+                  <line x1="248" x2="260" y1="82" y2="82" marker-end="url(#arr5)"/>
+                  <line x1="368" x2="380" y1="82" y2="82" marker-end="url(#arr5)"/>
+                  <line x1="488" x2="500" y1="82" y2="82" marker-end="url(#arr5)"/>
+                </g>
+
+                <!-- agent dispatch labels above each phase -->
+                <g>
+                  <text x="74"  y="50" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 8px; letter-spacing: 0.15em;">PLANNER</text>
+                  <text x="194" y="50" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 8px; letter-spacing: 0.15em;">CODER</text>
+                  <text x="314" y="50" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 8px; letter-spacing: 0.15em;">REVIEWER</text>
+                  <text x="434" y="50" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 8px; letter-spacing: 0.15em;">VERIFIER</text>
+                  <text x="554" y="50" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 8px; letter-spacing: 0.15em; fill: var(--amber);">DRAFT PR</text>
+                </g>
+
+                <!-- Loopback arcs below the boxes -->
+                <!-- review → code (shallow) -->
+                <path d="M 314 106 C 314 130 194 130 194 106" fill="none" stroke="var(--ember)" stroke-width="1" stroke-dasharray="3 3"/>
+                <text x="254" y="144" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 8px; letter-spacing: 0.18em; fill: var(--ember);">ON BLOCKERS</text>
+
+                <!-- verify → code (deeper) -->
+                <path d="M 434 106 C 434 170 194 170 194 106" fill="none" stroke="var(--ember)" stroke-width="1" stroke-dasharray="3 3"/>
+                <text x="314" y="184" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 8px; letter-spacing: 0.18em; fill: var(--ember);">ON VERIFY FAIL</text>
+
+                <text x="310" y="208" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em;">HUMAN GATES OPEN ONLY WHEN THE MACHINE CAN'T CONTINUE</text>
+              </g>
+
+              <!-- PR handoff -->
+              <g transform="translate(890, 90)">
+                <rect class="node" width="150" height="140" rx="2" stroke="var(--amber)"/>
+                <text class="node-sub" x="75" y="28" text-anchor="middle" style="fill: var(--amber);">HANDOFF</text>
+                <text class="ink" x="75" y="68" text-anchor="middle" style="font-family: var(--serif); font-size: 17px; fill: var(--paper);">PR</text>
+                <text class="dim" x="75" y="92" text-anchor="middle" style="font-size: 11px; fill: var(--amber);">ready for review</text>
+                <text class="dim" x="75" y="110" text-anchor="middle" style="font-size: 11px;">never auto-merged</text>
+              </g>
+
+              <!-- Human -->
+              <g transform="translate(1090, 90)">
+                <rect class="node" width="150" height="140" rx="2"/>
+                <text class="node-sub" x="75" y="28" text-anchor="middle">HUMAN</text>
+                <text class="ink" x="75" y="68" text-anchor="middle" style="font-family: var(--serif); font-style: italic; font-size: 17px;">me</text>
+                <text class="dim" x="75" y="92" text-anchor="middle" style="font-size: 11px;">review</text>
+                <text class="dim" x="75" y="110" text-anchor="middle" style="font-size: 11px;">approve · merge</text>
+              </g>
+
+              <!-- Main -->
+              <g transform="translate(1290, 90)">
+                <rect class="node" width="90" height="140" rx="2"/>
+                <text class="node-sub" x="45" y="28" text-anchor="middle">MAIN</text>
+                <text class="ink" x="45" y="85" text-anchor="middle" style="font-family: var(--serif); font-size: 16px;">shipped</text>
+              </g>
+
+              <!-- Between-node arrows -->
+              <g fill="none" stroke="var(--amber)" stroke-width="1.4">
+                <line x1="180"  x2="230"  y1="160" y2="160" marker-end="url(#arr5)"/>
+                <line x1="850"  x2="890"  y1="160" y2="160" marker-end="url(#arr5)"/>
+                <line x1="1040" x2="1090" y1="160" y2="160" marker-end="url(#arr5)"/>
+                <line x1="1240" x2="1290" y1="160" y2="160" marker-end="url(#arr5)"/>
+              </g>
+
+              <!-- autonomy / supervised bands -->
+              <line x1="230" y1="292" x2="850" y2="292" stroke="var(--amber)" stroke-width="2"/>
+              <text x="540" y="312" text-anchor="middle" class="amber" style="font-family: var(--mono); font-size: 11px; letter-spacing: 0.22em;">AUTONOMOUS</text>
+
+              <line x1="890" y1="292" x2="1380" y2="292" stroke="var(--ink-dim)" stroke-width="1"/>
+              <text x="1135" y="312" text-anchor="middle" class="dim" style="font-family: var(--mono); font-size: 11px; letter-spacing: 0.22em;">SUPERVISED</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         5-LAYER ARCHITECTURE
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="iii" data-notes="'Zoom out. Here's the whole stack that makes all of this possible. Five layers, each doing one thing.'">
+      <div class="content stagger">
+        <div>
+          <div class="eyebrow">III · 06 &nbsp;·&nbsp; The stack</div>
+          <h3 class="heading-xl" style="margin-top:1rem;">Five layers. <em>One buddy.</em></h3>
+        </div>
+        <div class="stack">
+          <div class="stack__row">
+            <div class="stack__n">01</div>
+            <div class="stack__label">
+              <div class="stack__tag">Layer one</div>
+              <div class="stack__name">Mission Control &mdash; the UI</div>
+            </div>
+            <div class="stack__tech">Next.js &middot; shadcn/ui &middot; React &middot; Tailwind</div>
+          </div>
+          <div class="stack__row">
+            <div class="stack__n">02</div>
+            <div class="stack__label">
+              <div class="stack__tag">Layer two</div>
+              <div class="stack__name">Workflow &amp; agents</div>
+            </div>
+            <div class="stack__tech">Claude Code &middot; node-cron &middot; /agents</div>
+          </div>
+          <div class="stack__row">
+            <div class="stack__n">03</div>
+            <div class="stack__label">
+              <div class="stack__tag">Layer three</div>
+              <div class="stack__name">Knowledge &amp; memory</div>
+            </div>
+            <div class="stack__tech">PostgreSQL &middot; pgvector &middot; RAG pipeline &middot; Git</div>
+          </div>
+          <div class="stack__row">
+            <div class="stack__n">04</div>
+            <div class="stack__label">
+              <div class="stack__tag">Layer four</div>
+              <div class="stack__name">Integrations</div>
+            </div>
+            <div class="stack__tech">Work IQ (M365) &middot; Azure CLI (ADO) &middot; Graph API</div>
+          </div>
+          <div class="stack__row">
+            <div class="stack__n">05</div>
+            <div class="stack__label">
+              <div class="stack__tag">Layer five</div>
+              <div class="stack__name">Infrastructure</div>
+            </div>
+            <div class="stack__tech">Docker Compose &middot; Postgres &middot; Redis</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         ACT IV DIVIDER
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--divider" data-act="iv" data-notes="Act four. From task agents to a team.">
+      <div class="wrap stagger">
+        <div class="roman">IV</div>
+        <div>
+          <div class="act-chip"><span class="dot"></span> Act four</div>
+          <h2 class="act-title">From agents to <em>a team.</em></h2>
+          <div class="act-caption">Because one generic copilot won't do what you need.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         19 · GENERIC VS PERSONAL
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="iv" data-notes="'Off-the-shelf copilots are good. They just don't know my work, my tone, my team.'">
+      <div class="vs stagger">
+        <div class="vs__col a">
+          <h4>OFF-THE-SHELF</h4>
+          <p class="phrase">Generic copilots.<br/>Context-light.<br/>Same for everyone.</p>
+          <p class="caption" style="text-align: right;">Helpful.<br/>Not mine.</p>
+        </div>
+        <div class="vs__divider">/</div>
+        <div class="vs__col b">
+          <h4>SPECIALIZED AGENTS</h4>
+          <p class="phrase">My data. My workflows.<br/>My people. <em>My tone.</em></p>
+          <p class="caption" style="color: var(--ink-2);">A cast of small agents, all reading from one memory.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         20 · ECOSYSTEM HUB
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="iv" data-notes="'One memory. Many specialists. I can spin up a new one in an hour now.'">
+      <div class="content content--split stagger">
+        <div>
+          <div class="eyebrow">IV · 01 &nbsp;·&nbsp; The ecosystem</div>
+          <h3 class="heading-xl" style="margin-top:1rem;">A cast of specialists —<br/><em>one shared memory.</em></h3>
+          <p class="body" style="margin-top:1.5rem;">Standup agent. Sprint planner. Coding agent. Executor. 1:1 prep. Briefing. Each small, sharp, specific — all reading from the same knowledge layer underneath.</p>
+        </div>
+        <div>
+          <svg class="diagram" viewBox="0 0 700 500" aria-hidden="true">
+            <!-- core -->
+            <circle cx="350" cy="250" r="90" class="node-accent" stroke-width="1.4"/>
+            <text x="350" y="244" text-anchor="middle" class="ink" style="font-family: var(--serif); font-size: 20px; fill: var(--paper);">shared</text>
+            <text x="350" y="270" text-anchor="middle" class="amber" style="font-family: var(--serif); font-style: italic; font-size: 22px;">memory</text>
+
+            <!-- spokes -->
+            <g fill="none" stroke="var(--rule-strong)" stroke-width="1">
+              <line x1="350" y1="160" x2="350" y2="80"/>
+              <line x1="416" y1="190" x2="560" y2="110"/>
+              <line x1="440" y1="250" x2="620" y2="250"/>
+              <line x1="416" y1="310" x2="560" y2="390"/>
+              <line x1="350" y1="340" x2="350" y2="420"/>
+              <line x1="284" y1="310" x2="140" y2="390"/>
+              <line x1="260" y1="250" x2="80"  y2="250"/>
+              <line x1="284" y1="190" x2="140" y2="110"/>
+            </g>
+
+            <!-- agents -->
+            <g transform="translate(350, 80)">
+              <circle r="36" class="node"/>
+              <text text-anchor="middle" y="5" class="ink" style="font-family: var(--serif); font-size: 14px;">standup</text>
+            </g>
+            <g transform="translate(560, 110)">
+              <circle r="36" class="node"/>
+              <text text-anchor="middle" y="5" class="ink" style="font-family: var(--serif); font-size: 14px;">briefing</text>
+            </g>
+            <g transform="translate(620, 250)">
+              <circle r="36" class="node-accent" stroke-width="1.4"/>
+              <text text-anchor="middle" y="0" class="ink" style="font-family: var(--serif); font-size: 13px; fill: var(--paper);">planner</text>
+              <text text-anchor="middle" y="16" class="amber" style="font-size: 10px; font-family: var(--mono);">LLM</text>
+            </g>
+            <g transform="translate(560, 390)">
+              <circle r="36" class="node-accent" stroke-width="1.4"/>
+              <text text-anchor="middle" y="0" class="ink" style="font-family: var(--serif); font-size: 13px; fill: var(--paper);">coder</text>
+              <text text-anchor="middle" y="16" class="amber" style="font-size: 10px; font-family: var(--mono);">LLM</text>
+            </g>
+            <g transform="translate(350, 420)">
+              <circle r="36" class="node-accent" stroke-width="1.4"/>
+              <text text-anchor="middle" y="0" class="ink" style="font-family: var(--serif); font-size: 13px; fill: var(--paper);">executor</text>
+              <text text-anchor="middle" y="16" class="amber" style="font-size: 10px; font-family: var(--mono);">LLM</text>
+            </g>
+            <g transform="translate(140, 390)">
+              <circle r="36" class="node"/>
+              <text text-anchor="middle" y="5" class="ink" style="font-family: var(--serif); font-size: 14px;">1:1 prep</text>
+            </g>
+            <g transform="translate(80, 250)">
+              <circle r="36" class="node"/>
+              <text text-anchor="middle" y="5" class="ink" style="font-family: var(--serif); font-size: 13px;">context</text>
+            </g>
+            <g transform="translate(140, 110)">
+              <circle r="36" class="node" stroke="var(--amber)" stroke-dasharray="3 3"/>
+              <text text-anchor="middle" y="0" class="ink" style="font-family: var(--serif); font-size: 13px;">custom</text>
+              <text text-anchor="middle" y="16" class="amber" style="font-family: var(--mono); font-size: 9px;">YOURS</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         21 · TARS AS COMPANION
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="iv" data-notes="'The agents are the workforce. TARS is the face of it. It's what I actually talk to.'">
+      <div class="content content--split stagger">
+        <div>
+          <div class="eyebrow">IV · 02 &nbsp;·&nbsp; The assistant</div>
+          <h3 class="heading-xl" style="margin-top:1rem;">The agents <em>do the work.</em><br/>TARS is <em>what I talk to.</em></h3>
+          <p class="body" style="margin-top:1.5rem;">One voice, hands-free. It knows my day, my sprint, my people. When I ask, it either answers or calls an agent that can.</p>
+          <p class="caption" style="margin-top:1rem; font-family: var(--mono); font-size: 0.82rem; letter-spacing: 0.1em;">VOICE · AUTONOMOUS NAV · CONVERSATION MODE</p>
+        </div>
+        <div>
+          <svg class="diagram" viewBox="0 0 600 460" aria-hidden="true">
+            <!-- waveform -->
+            <g transform="translate(60, 220)" stroke="var(--amber)" stroke-width="2" fill="none" stroke-linecap="round">
+              <line x1="0"   y1="0" x2="0"   y2="0"/>
+              <line x1="16"  y1="-8"  x2="16"  y2="8"/>
+              <line x1="32"  y1="-22" x2="32"  y2="22"/>
+              <line x1="48"  y1="-34" x2="48"  y2="34"/>
+              <line x1="64"  y1="-48" x2="64"  y2="48"/>
+              <line x1="80"  y1="-38" x2="80"  y2="38"/>
+              <line x1="96"  y1="-56" x2="96"  y2="56"/>
+              <line x1="112" y1="-24" x2="112" y2="24"/>
+              <line x1="128" y1="-42" x2="128" y2="42"/>
+              <line x1="144" y1="-62" x2="144" y2="62"/>
+              <line x1="160" y1="-30" x2="160" y2="30"/>
+              <line x1="176" y1="-14" x2="176" y2="14"/>
+              <line x1="192" y1="-46" x2="192" y2="46"/>
+              <line x1="208" y1="-22" x2="208" y2="22"/>
+              <line x1="224" y1="-10" x2="224" y2="10"/>
+              <line x1="240" y1="-30" x2="240" y2="30"/>
+              <line x1="256" y1="-42" x2="256" y2="42"/>
+              <line x1="272" y1="-16" x2="272" y2="16"/>
+              <line x1="288" y1="-6"  x2="288" y2="6"/>
+            </g>
+
+            <!-- speech bubbles -->
+            <g transform="translate(40, 70)">
+              <rect class="node" width="260" height="62" rx="2"/>
+              <text class="node-sub" x="16" y="24">YOU &nbsp;·&nbsp; 08:12</text>
+              <text class="ink" x="16" y="46" style="font-family: var(--serif); font-style: italic;">summarize my day.</text>
+            </g>
+            <g transform="translate(300, 310)">
+              <rect class="node-accent" width="260" height="130" rx="2"/>
+              <text class="node-sub" x="16" y="24" style="fill: var(--amber);">TARS &nbsp;·&nbsp; 08:12</text>
+              <text class="ink" x="16" y="50" style="font-family: var(--serif); font-size: 13px; fill: var(--paper);">3 items open. 2 PRs waiting on</text>
+              <text class="ink" x="16" y="70" style="font-family: var(--serif); font-size: 13px; fill: var(--paper);">you. Vishal wants a decision</text>
+              <text class="ink" x="16" y="90" style="font-family: var(--serif); font-size: 13px; fill: var(--paper);">on the sync cadence.</text>
+              <text class="dim" x="16" y="114" style="font-family: var(--mono); font-size: 11px;">→ OPENING BRIEFING</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         ACT V DIVIDER (Learning)
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--divider" data-act="vi" data-notes="'Then the weird things started happening.'">
+      <div class="wrap stagger">
+        <div class="roman">V</div>
+        <div>
+          <div class="act-chip"><span class="dot"></span> Act five</div>
+          <h2 class="act-title"><em>Learning.</em></h2>
+          <div class="act-caption">Surprises, risks, and the hard parts that weren't the AI.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         29 · THE PYTHON STORY
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--seq" data-act="vi" data-notes="Tell this like a short story. Let each beat land. The audience should be leaning in by step 4.">
+      <div class="wrap stagger">
+        <div class="eyebrow">V · 01 &nbsp;·&nbsp; A true story, in seven beats</div>
+        <h3 class="seq-title">I asked an agent to generate a PDF.<br/><em style="font-style: italic; color: var(--amber);">Here's what happened next.</em></h3>
+        <div class="seq">
+          <div class="seq-step"><div class="step-n">01</div><div class="step-t">It didn't have the Python library it needed.</div></div>
+          <div class="seq-step"><div class="step-n">02</div><div class="step-t">So it <em>installed one.</em></div></div>
+          <div class="seq-step"><div class="step-n">03</div><div class="step-t">The CLI it needed was blocked in our environment.</div></div>
+          <div class="seq-step"><div class="step-n">04</div><div class="step-t">So it switched to the <em>REST API</em>.</div></div>
+          <div class="seq-step"><div class="step-n">05</div><div class="step-t">The REST API needed an auth token.</div></div>
+          <div class="seq-step accent"><div class="step-n">06</div><div class="step-t">It <em>found the token path</em> on the machine.</div></div>
+          <div class="seq-step accent"><div class="step-n">07</div><div class="step-t">And then it finished the job.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         30 · THE LESSON
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--quote" data-act="vi" data-notes="Pause. 'That's when I understood the real problem.'">
+      <div class="wrap stagger">
+        <div class="eyebrow">V · 02 &nbsp;·&nbsp; The lesson</div>
+        <p class="pull-quote">Capability grows <em>faster</em><br/>than guardrails do.</p>
+        <div class="pull-quote-foot">Build the leash before you need it.</div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         31 · INFRASTRUCTURE, NOT AGENTS
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="vi" data-notes="'Eighty percent of the hard work in this project had nothing to do with LLMs.'">
+      <div class="content content--split stagger">
+        <div>
+          <div class="eyebrow">V · 03 &nbsp;·&nbsp; The hard part</div>
+          <h3 class="heading-xl" style="margin-top:1rem;">The agents weren't the hard part.<br/><em>The plumbing was.</em></h3>
+          <p class="body" style="margin-top:1.5rem;">Every interesting week, the thing that ate the day wasn't prompting — it was auth, tokens, sandboxes, queues, event-sourcing, a laptop that ran out of memory.</p>
+        </div>
+        <ul class="log">
+          <li><span>No Anthropic API key</span></li>
+          <li><span>No sandbox</span></li>
+          <li><span>Limited compute, capped context</span></li>
+          <li><span>A laptop that crashed under multi-agent load</span></li>
+          <li><span>Moving the whole thing to a DevBox</span></li>
+          <li><span>Worktrees, idempotency keys, resumable state</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         32 · ACT VII DIVIDER
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--divider" data-act="vii" data-notes="The philosophical act. Short.">
+      <div class="wrap stagger">
+        <div class="roman">VI</div>
+        <div>
+          <div class="act-chip"><span class="dot"></span> Act six</div>
+          <h2 class="act-title">What AI changed about <em>how I work.</em></h2>
+          <div class="act-caption">Leverage, honestly stated.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         33 · THE ONE-PERSON TEAM
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="vii" data-notes="Don't frame it as 'me'. Frame it as 'what it took to build TARS' — a solo project meant wearing every role in the stack.">
+      <div class="content stagger">
+        <div>
+          <div class="eyebrow">VI · 01 &nbsp;·&nbsp; What it took</div>
+          <h3 class="heading-xl" style="margin-top:1rem;">Building TARS meant <em>wearing every hat.</em></h3>
+        </div>
+        <div class="roles">
+          <span class="roles__item r1">product</span>
+          <span class="roles__item r2">designer</span>
+          <span class="roles__item r3">front-end</span>
+          <span class="roles__item r4">back-end</span>
+          <span class="roles__item r5">DBA</span>
+          <span class="roles__item r6">infra</span>
+          <span class="roles__item r7">reviewer</span>
+          <span class="roles__item r8">release manager</span>
+          <span class="roles__center">one project,<br/>every role</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         34 · BUT — EXPERTISE
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--quote" data-act="vii" data-notes="The counterweight. Say this slowly. It's the line most worth quoting.">
+      <div class="wrap stagger">
+        <div class="eyebrow">VI · 02 &nbsp;·&nbsp; What I learned</div>
+        <p class="pull-quote">AI didn't make me a specialist.<br/>It made me <em>respect</em> specialists more.</p>
+        <div class="pull-quote-foot">Leverage expands. Expertise still decides.</div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         THE LINE
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide slide--close" data-act="close" data-notes="Your closing line. Memorize it. Don't read it.">
+      <div class="wrap stagger">
+        <div class="eyebrow">Where this started &nbsp;·&nbsp; where it's going</div>
+        <p class="close-line one">Started with remembering what to say in standup.</p>
+        <p class="close-line two">Ended up building agents that help <em>run the work.</em></p>
+        <div class="close-sig">
+          <span class="dot"></span>
+          <span>Andichamy Gurusamy</span>
+          <span class="dot"></span>
+          <span>TARS · 2026</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════
+         37 · THANK YOU / INVITE
+         ═══════════════════════════════════════════════════════ -->
+    <section class="slide" data-act="close" data-notes="Leave on an invitation. 'If you want to break it, I'd love that. Come find me.'">
+      <div class="content stagger" style="max-width: 900px; text-align: left;">
+        <div>
+          <div class="eyebrow">Questions, ideas, breakage</div>
+          <h3 class="heading-xl" style="margin-top:1.25rem;">Come break it.</h3>
+          <p class="body" style="margin-top:1.25rem;">If you want to try TARS, have an agent idea, or want to pair on a piece of this — I'm around. The most interesting bugs come from new hands.</p>
+          <div class="close-sig" style="margin-top: 2.5rem;">
+            <span class="dot"></span>
+            <span>angurusa@microsoft.com</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       chrome
+       ═══════════════════════════════════════════════════════ -->
+  <div class="chrome">
+    <div class="chrome__corner chrome__corner--tl">
+      <svg class="mark" viewBox="0 0 24 80" aria-hidden="true">
+        <rect class="panel" x="2" y="2"  width="20" height="16" rx="0.5"/>
+        <rect class="panel" x="2" y="22" width="20" height="16" rx="0.5"/>
+        <rect class="panel" x="2" y="42" width="20" height="16" rx="0.5"/>
+        <rect class="panel" x="2" y="62" width="20" height="16" rx="0.5"/>
+        <rect class="led"   x="6" y="32" width="8" height="1.6"/>
+      </svg>
+      <span id="chrome-title">TARS</span>
+    </div>
+    <div class="chrome__corner chrome__corner--tr">
+      <span id="chrome-act">PROLOGUE</span>
+      <span class="reg"></span>
+    </div>
+    <div class="chrome__corner chrome__corner--bl">
+      <span id="chrome-num">01 / 37</span>
+    </div>
+    <div class="chrome__corner chrome__corner--br">
+      <span><span class="mono" style="color: var(--amber);">← →</span> navigate</span>
+      <span><span class="mono" style="color: var(--amber);">O</span> overview</span>
+      <span><span class="mono" style="color: var(--amber);">P</span> notes</span>
+      <span><span class="mono" style="color: var(--amber);">?</span> help</span>
+    </div>
+  </div>
+
+  <div class="progress"><div class="progress__bar" id="progress-bar"></div></div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       presenter notes
+       ═══════════════════════════════════════════════════════ -->
+  <div class="notes" id="notes-panel"></div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       help
+       ═══════════════════════════════════════════════════════ -->
+  <div class="help" id="help-panel">
+    <h5>Keyboard</h5>
+    <dl>
+      <dt>→ &nbsp;Space</dt><dd>next slide</dd>
+      <dt>←</dt><dd>previous slide</dd>
+      <dt>Home &nbsp;End</dt><dd>first / last</dd>
+      <dt>O</dt><dd>overview grid</dd>
+      <dt>P</dt><dd>presenter notes</dd>
+      <dt>F</dt><dd>fullscreen</dd>
+      <dt>?</dt><dd>toggle this</dd>
+      <dt>Esc</dt><dd>close overlays</dd>
+    </dl>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       overview grid
+       ═══════════════════════════════════════════════════════ -->
+  <div class="overview" id="overview-panel">
+    <div class="overview__head">
+      <h3>Overview</h3>
+      <div class="hint">Click a slide to jump · Esc to close</div>
+    </div>
+    <div class="overview__grid" id="overview-grid"></div>
+  </div>
+
+  <script>
+    (function () {
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      const total = slides.length;
+      const actNames = {
+        prologue: 'PROLOGUE',
+        i:   'I · THE ITCH',
+        ii:  'II · INTELLIGENCE',
+        iii: 'III · DOING',
+        iv:  'IV · A TEAM',
+        vi:  'V · LEARNING',
+        vii: 'VI · LEVERAGE',
+        close: 'CLOSE',
+      };
+
+      let idx = 0;
+
+      const chromeNum   = document.getElementById('chrome-num');
+      const chromeAct   = document.getElementById('chrome-act');
+      const progressBar = document.getElementById('progress-bar');
+      const notesPanel  = document.getElementById('notes-panel');
+      const helpPanel   = document.getElementById('help-panel');
+      const overview    = document.getElementById('overview-panel');
+      const ovGrid      = document.getElementById('overview-grid');
+
+      // ——— build overview thumbnails ——— //
+      slides.forEach((s, i) => {
+        const card = document.createElement('div');
+        card.className = 'ov-card';
+        card.innerHTML = `
+          <div class="ov-card__n">${String(i + 1).padStart(2, '0')} / ${total}</div>
+          <div class="ov-card__title">${extractTitle(s)}</div>
+          <div class="ov-card__act">${actNames[s.dataset.act] || ''}</div>
+        `;
+        card.addEventListener('click', () => {
+          go(i);
+          overview.classList.remove('open');
+        });
+        ovGrid.appendChild(card);
+      });
+
+      function extractTitle(slide) {
+        const candidates = [
+          slide.querySelector('.title-word'),
+          slide.querySelector('.act-title'),
+          slide.querySelector('.heading-xl'),
+          slide.querySelector('.heading-l'),
+          slide.querySelector('.pull-quote'),
+          slide.querySelector('.scene-time'),
+          slide.querySelector('.demo-title'),
+          slide.querySelector('.close-line.two'),
+          slide.querySelector('.hook-line'),
+          slide.querySelector('.seq-title'),
+          slide.querySelector('.vs__col.b .phrase'),
+        ].filter(Boolean);
+        if (!candidates.length) return '—';
+        return candidates[0].textContent.trim().replace(/\s+/g, ' ').slice(0, 80);
+      }
+
+      function render() {
+        slides.forEach((s, i) => s.classList.toggle('is-active', i === idx));
+        chromeNum.textContent = `${String(idx + 1).padStart(2, '0')} / ${String(total).padStart(2, '0')}`;
+        const act = slides[idx].dataset.act;
+        chromeAct.textContent = actNames[act] || '';
+        progressBar.style.width = `${((idx + 1) / total) * 100}%`;
+        notesPanel.textContent = slides[idx].dataset.notes || '';
+        // update hash
+        history.replaceState(null, '', `#${idx + 1}`);
+      }
+
+      function go(i) {
+        idx = Math.max(0, Math.min(total - 1, i));
+        render();
+      }
+      function next() { go(idx + 1); }
+      function prev() { go(idx - 1); }
+
+      // ——— keyboard ——— //
+      document.addEventListener('keydown', (e) => {
+        // ignore when typing in inputs
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        if (overview.classList.contains('open') && e.key === 'Escape') {
+          overview.classList.remove('open');
+          return;
+        }
+        if (helpPanel.classList.contains('open') && e.key === 'Escape') {
+          helpPanel.classList.remove('open');
+          return;
+        }
+
+        switch (e.key) {
+          case 'ArrowRight':
+          case ' ':
+          case 'PageDown':
+            e.preventDefault();
+            next();
+            break;
+          case 'ArrowLeft':
+          case 'PageUp':
+            e.preventDefault();
+            prev();
+            break;
+          case 'Home':
+            e.preventDefault();
+            go(0);
+            break;
+          case 'End':
+            e.preventDefault();
+            go(total - 1);
+            break;
+          case 'o':
+          case 'O':
+            overview.classList.toggle('open');
+            break;
+          case 'p':
+          case 'P':
+            notesPanel.classList.toggle('open');
+            break;
+          case 'f':
+          case 'F':
+            if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+            else document.exitFullscreen();
+            break;
+          case '?':
+            helpPanel.classList.toggle('open');
+            break;
+        }
+      });
+
+      // ——— click navigation (left/right halves) ——— //
+      document.addEventListener('click', (e) => {
+        // ignore clicks inside panels
+        if (e.target.closest('.overview, .help, .notes, .chrome')) return;
+        const w = window.innerWidth;
+        if (e.clientX > w * 0.55) next();
+        else if (e.clientX < w * 0.45) prev();
+      });
+
+      // ——— init from hash ——— //
+      const fromHash = parseInt(location.hash.replace('#', ''), 10);
+      if (!isNaN(fromHash) && fromHash >= 1 && fromHash <= total) {
+        idx = fromHash - 1;
+      }
+      render();
+
+      // brief hint on load
+      setTimeout(() => {
+        helpPanel.classList.add('open');
+        setTimeout(() => helpPanel.classList.remove('open'), 4500);
+      }, 800);
+    })();
+  </script>
+</body>
+</html>
