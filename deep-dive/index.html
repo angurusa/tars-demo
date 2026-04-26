@@ -1,0 +1,1956 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TARS — An interactive deep-dive</title>
+<meta name="description" content="How TARS turns an Azure DevOps work item into a draft pull request — the architecture, the memory layer, the autonomous state machine, and the non-obvious engineering choices that make it work." />
+<meta name="color-scheme" content="dark" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" />
+<style>
+/* ─────────────────────────────────────────────────────────
+   Tokens
+───────────────────────────────────────────────────────── */
+:root {
+  --bg:            oklch(0.17 0.008 235);   /* warm near-black, hint of teal */
+  --bg-raised:     oklch(0.21 0.009 235);
+  --bg-sunken:     oklch(0.14 0.007 235);
+  --panel:         oklch(0.23 0.010 230);
+  --panel-hi:      oklch(0.27 0.012 230);
+
+  --ink:           oklch(0.96 0.004 230);
+  --ink-2:         oklch(0.82 0.006 230);
+  --ink-3:         oklch(0.62 0.008 230);
+  --ink-4:         oklch(0.46 0.009 230);
+  --ink-faint:     oklch(0.33 0.009 230);
+
+  --line:          oklch(0.30 0.010 230 / 0.6);
+  --line-soft:     oklch(0.30 0.010 230 / 0.35);
+
+  --teal:          oklch(0.74 0.11 185);
+  --teal-deep:     oklch(0.58 0.10 186);
+  --teal-soft:     oklch(0.74 0.11 185 / 0.12);
+  --teal-line:     oklch(0.74 0.11 185 / 0.28);
+
+  --amber:         oklch(0.78 0.13 75);
+  --amber-soft:    oklch(0.78 0.13 75 / 0.12);
+  --green:         oklch(0.74 0.14 155);
+  --green-soft:    oklch(0.74 0.14 155 / 0.12);
+  --red:           oklch(0.68 0.18 25);
+  --red-soft:      oklch(0.68 0.18 25 / 0.12);
+  --violet:        oklch(0.72 0.12 295);
+  --violet-soft:   oklch(0.72 0.12 295 / 0.12);
+
+  --sans:  "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:  "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius:   10px;
+  --radius-lg: 14px;
+
+  --ease:      cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
+
+  --measure: 64ch;
+}
+
+/* dark-first · single theme, matches TARS Mission Control */
+
+*,*::before,*::after{ box-sizing: border-box; }
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-feature-settings: "ss01","cv11","cv09";
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+}
+
+::selection { background: var(--teal-soft); color: var(--ink); }
+
+a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  transition: text-decoration-color 150ms var(--ease);
+}
+a:hover { text-decoration-color: var(--teal); }
+
+code, kbd, samp {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  letter-spacing: 0;
+}
+
+/* ─────────────────────────────────────────────────────────
+   Page scaffolding
+───────────────────────────────────────────────────────── */
+
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(1.25rem, 2.5vw, 2rem);
+}
+
+.reading {
+  max-width: var(--measure);
+}
+
+/* ─────────────────────────────────────────────────────────
+   Top bar
+───────────────────────────────────────────────────────── */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem clamp(1.25rem, 2.5vw, 2rem);
+  background: color-mix(in oklab, var(--bg) 80%, transparent);
+  backdrop-filter: saturate(140%) blur(10px);
+  -webkit-backdrop-filter: saturate(140%) blur(10px);
+  border-bottom: 1px solid transparent;
+  transition: border-color 200ms var(--ease);
+}
+.topbar.is-scrolled { border-bottom-color: var(--line-soft); }
+.topbar-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+}
+.brand-mark {
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  background: var(--ink);
+  color: var(--bg);
+  display: inline-grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 11px;
+}
+.brand-name { color: var(--ink); }
+.brand-sub { color: var(--ink-3); font-weight: 400; }
+
+.topnav {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--ink-3);
+}
+.topnav a { text-decoration: none; }
+.topnav a:hover { color: var(--ink); }
+@media (max-width: 760px) { .topnav { display: none; } }
+
+.ping {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 0 0 var(--teal-soft);
+  animation: ping 2.4s var(--ease) infinite;
+}
+@keyframes ping {
+  0%   { box-shadow: 0 0 0 0 oklch(0.74 0.11 185 / 0.35); }
+  80%  { box-shadow: 0 0 0 10px oklch(0.74 0.11 185 / 0); }
+  100% { box-shadow: 0 0 0 0 oklch(0.74 0.11 185 / 0); }
+}
+
+/* ─────────────────────────────────────────────────────────
+   Section primitives
+───────────────────────────────────────────────────────── */
+section { padding: clamp(3rem, 7vw, 6rem) 0; border-top: 1px solid var(--line-soft); }
+section:first-of-type { border-top: 0; padding-top: clamp(2rem, 5vw, 4rem); }
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.eyebrow .num {
+  color: var(--ink-4);
+  font-variant-numeric: tabular-nums;
+}
+.eyebrow .dot {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--teal);
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--sans);
+  font-weight: 500;
+  letter-spacing: -0.022em;
+  line-height: 1.15;
+  color: var(--ink);
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(2.25rem, 5.5vw, 4.25rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.03;
+}
+h2 { font-size: clamp(1.65rem, 3.4vw, 2.4rem); letter-spacing: -0.028em; }
+h3 { font-size: 1.15rem; font-weight: 500; }
+
+.lead {
+  font-size: clamp(1.05rem, 1.4vw, 1.18rem);
+  color: var(--ink-2);
+  line-height: 1.6;
+  max-width: var(--measure);
+}
+
+p { margin: 0 0 1rem; color: var(--ink-2); }
+p.tight { margin-bottom: 0.5rem; }
+
+/* ─────────────────────────────────────────────────────────
+   HERO
+───────────────────────────────────────────────────────── */
+.hero {
+  padding-top: clamp(3rem, 8vw, 6rem);
+  padding-bottom: clamp(3rem, 8vw, 6rem);
+  position: relative;
+  isolation: isolate;
+}
+.hero .eyebrow { margin-bottom: 1.25rem; }
+
+.hero h1 {
+  max-width: 18ch;
+  margin-bottom: 1.5rem;
+}
+.hero h1 em {
+  font-style: normal;
+  color: var(--ink-3);
+  font-weight: 300;
+}
+
+.hero-grid {
+  margin-top: clamp(3rem, 6vw, 5rem);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--line-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.hero-stat {
+  background: var(--bg);
+  padding: 1.25rem 1.35rem 1.4rem;
+}
+.hero-stat .k {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.9rem;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+.hero-stat .v {
+  color: var(--ink-3);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-top: 0.3rem;
+  font-family: var(--mono);
+}
+@media (max-width: 760px) {
+  .hero-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ─────────────────────────────────────────────────────────
+   Header block (section intro)
+───────────────────────────────────────────────────────── */
+.header-block { margin-bottom: clamp(2rem, 4vw, 3rem); }
+.header-block h2 { margin-bottom: 1rem; }
+
+/* ─────────────────────────────────────────────────────────
+   Differentiators row
+───────────────────────────────────────────────────────── */
+.diffs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+.diff {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.diff .tag {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--teal);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.diff .t { font-weight: 500; color: var(--ink); }
+.diff .d { color: var(--ink-3); font-size: 0.94rem; line-height: 1.55; }
+@media (max-width: 880px) { .diffs { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 500px) { .diffs { grid-template-columns: 1fr; } }
+
+/* ─────────────────────────────────────────────────────────
+   Layer explorer
+───────────────────────────────────────────────────────── */
+.layers {
+  margin-top: 1.5rem;
+  display: grid;
+  grid-template-columns: 1fr 1.1fr;
+  gap: clamp(1.25rem, 2.4vw, 2rem);
+  align-items: start;
+}
+@media (max-width: 880px) { .layers { grid-template-columns: 1fr; } }
+
+.layer-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.layer {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 180ms var(--ease), border-color 180ms var(--ease), transform 180ms var(--ease);
+  text-align: left;
+  width: 100%;
+  font-family: var(--sans);
+  color: inherit;
+}
+.layer:hover { border-color: var(--line); background: var(--panel-hi); }
+.layer[aria-selected="true"] {
+  border-color: var(--teal-line);
+  background: color-mix(in oklab, var(--panel) 85%, var(--teal-soft));
+}
+.layer .mark {
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-soft);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+.layer[aria-selected="true"] .mark {
+  background: var(--teal-soft);
+  border-color: var(--teal-line);
+  color: var(--teal);
+}
+.layer .head { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.layer .head .t { font-weight: 500; }
+.layer .head .s { font-size: 0.82rem; color: var(--ink-3); }
+.layer .arrow { color: var(--ink-4); font-family: var(--mono); font-size: 0.85rem; }
+.layer[aria-selected="true"] .arrow { color: var(--teal); }
+
+.layer-detail {
+  padding: 1.5rem 1.6rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  min-height: 360px;
+}
+.layer-detail h3 { margin-bottom: 0.5rem; }
+.layer-detail .meta {
+  display: flex; gap: 1.25rem;
+  margin-bottom: 1.1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px dashed var(--line-soft);
+  font-size: 0.82rem;
+  color: var(--ink-3);
+  font-family: var(--mono);
+}
+.layer-detail p { color: var(--ink-2); }
+.layer-detail ul {
+  list-style: none;
+  padding: 0; margin: 0.8rem 0 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.layer-detail li {
+  font-size: 0.92rem;
+  color: var(--ink-2);
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  gap: 1rem;
+  align-items: baseline;
+}
+
+/* ─────────────────────────────────────────────────────────
+   Cite chips
+───────────────────────────────────────────────────────── */
+.cite {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--ink-3);
+  background: var(--bg-sunken);
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--line-soft);
+  white-space: nowrap;
+}
+
+/* ─────────────────────────────────────────────────────────
+   Contract card
+───────────────────────────────────────────────────────── */
+.contract {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  gap: clamp(1.25rem, 2.5vw, 2.5rem);
+  align-items: start;
+  margin-top: 1.5rem;
+}
+@media (max-width: 880px) { .contract { grid-template-columns: 1fr; } }
+
+.code-card {
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.code-card header {
+  padding: 0.65rem 0.9rem;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line-soft);
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--panel);
+}
+.code-card header .path { color: var(--ink-2); }
+.code-card pre {
+  margin: 0;
+  padding: 1rem 1.1rem;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  color: var(--ink);
+  overflow-x: auto;
+}
+.code-card pre .kw { color: oklch(0.78 0.11 295); }
+.code-card pre .id { color: var(--teal); }
+.code-card pre .str { color: oklch(0.80 0.13 75); }
+.code-card pre .cm  { color: var(--ink-4); font-style: italic; }
+
+/* ─────────────────────────────────────────────────────────
+   Agent grid
+───────────────────────────────────────────────────────── */
+.agents {
+  margin-top: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+@media (max-width: 960px) { .agents { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 640px) { .agents { grid-template-columns: repeat(2, 1fr); } }
+
+.agent {
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 0.9rem 0.95rem 1rem;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  cursor: default;
+  transition: border-color 150ms var(--ease), transform 150ms var(--ease), background 150ms var(--ease);
+}
+.agent:hover {
+  border-color: var(--teal-line);
+  transform: translateY(-1px);
+  background: var(--panel-hi);
+}
+.agent .kind {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.agent .kind::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 2px;
+  background: var(--ink-4);
+}
+.agent[data-kind="scheduled"] .kind::before { background: var(--teal); }
+.agent[data-kind="background"] .kind::before { background: var(--violet); }
+.agent[data-kind="on-demand"] .kind::before  { background: var(--amber); }
+.agent[data-kind="system"] .kind::before     { background: var(--ink-3); }
+
+.agent .n {
+  font-weight: 500;
+  color: var(--ink);
+  font-size: 0.92rem;
+  letter-spacing: -0.01em;
+}
+.agent .w { color: var(--ink-3); font-size: 0.8rem; line-height: 1.45; }
+.agent .when { color: var(--ink-4); font-size: 0.72rem; font-family: var(--mono); margin-top: auto; }
+
+.agent-legend {
+  display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 1rem;
+  font-size: 0.78rem; color: var(--ink-3);
+}
+.agent-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.agent-legend i {
+  display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+}
+
+/* ─────────────────────────────────────────────────────────
+   Memory / SQL showcase
+───────────────────────────────────────────────────────── */
+.memory {
+  margin-top: 1.5rem;
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: clamp(1.25rem, 2.5vw, 2.5rem);
+  align-items: start;
+}
+@media (max-width: 880px) { .memory { grid-template-columns: 1fr; } }
+
+.memory-notes > * + * { margin-top: 1rem; }
+.memory-notes .row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+  align-items: baseline;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--line-soft);
+}
+.memory-notes .row:first-child { border-top: 0; padding-top: 0; }
+.memory-notes .row .lbl { color: var(--ink); font-size: 0.94rem; }
+.memory-notes .row .sub { color: var(--ink-3); font-size: 0.85rem; margin-top: 2px; }
+
+/* ─────────────────────────────────────────────────────────
+   Executor state machine
+───────────────────────────────────────────────────────── */
+.fsm {
+  margin-top: 1.5rem;
+}
+.fsm-phases {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  margin-bottom: 1.5rem;
+}
+@media (max-width: 880px) { .fsm-phases { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 500px) { .fsm-phases { grid-template-columns: repeat(2, 1fr); } }
+
+.fsm-phase {
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 0.8rem 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  font-family: var(--sans);
+  display: grid; gap: 4px;
+  transition: all 180ms var(--ease);
+  position: relative;
+}
+.fsm-phase:hover { border-color: var(--line); background: var(--panel-hi); }
+.fsm-phase[aria-selected="true"] {
+  background: color-mix(in oklab, var(--panel) 60%, var(--teal-soft));
+  border-color: var(--teal-line);
+}
+.fsm-phase .n {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--ink-4);
+  letter-spacing: 0.05em;
+}
+.fsm-phase .name { font-size: 0.92rem; font-weight: 500; }
+.fsm-phase[aria-selected="true"] .name { color: var(--teal); }
+
+.fsm-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.25rem;
+}
+@media (max-width: 880px) { .fsm-body { grid-template-columns: 1fr; } }
+.fsm-col h4 {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+  margin-bottom: 0.75rem;
+}
+.fsm-col ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.fsm-col li {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  padding: 0.35rem 0.55rem;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.fsm-col li.empty { color: var(--ink-4); background: transparent; border-style: dashed; text-align: center; }
+.fsm-col li.terminal { border-color: var(--teal-line); color: var(--teal); }
+.fsm-col li.danger { border-color: oklch(0.68 0.18 25 / 0.3); color: var(--red); }
+
+.fsm-blurb {
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  font-size: 0.93rem;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+.fsm-blurb strong { color: var(--ink); font-weight: 500; }
+
+/* ─────────────────────────────────────────────────────────
+   Concrete walkthrough — animated run
+───────────────────────────────────────────────────────── */
+.run {
+  margin-top: 1.5rem;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-sunken);
+}
+.run-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--panel);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink-3);
+  flex-wrap: wrap; gap: 0.75rem;
+}
+.run-header .t { color: var(--ink); letter-spacing: -0.01em; }
+.run-header .id { color: var(--ink-3); }
+.run-header .status { color: var(--teal); display: inline-flex; align-items: center; gap: 6px; }
+.run-controls { display: inline-flex; gap: 6px; }
+.run-controls button {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--ink-2);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-soft);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 150ms var(--ease);
+}
+.run-controls button:hover { border-color: var(--teal-line); color: var(--ink); }
+.run-controls button[aria-pressed="true"] { color: var(--teal); border-color: var(--teal-line); }
+
+.run-events {
+  padding: 0.75rem 1.1rem 1.25rem;
+  display: grid;
+  gap: 0;
+  position: relative;
+  min-height: 260px;
+  counter-reset: event;
+}
+.run-event {
+  position: relative;
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  gap: 1rem;
+  align-items: baseline;
+  padding: 0.65rem 0;
+  border-top: 1px dashed var(--line-soft);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 400ms var(--ease), transform 400ms var(--ease);
+}
+.run-event:first-child { border-top: 0; }
+.run-event.shown { opacity: 1; transform: translateY(0); }
+.run-event .ts {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-4);
+}
+.run-event .what { font-size: 0.9rem; color: var(--ink); }
+.run-event .what .kind {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--teal);
+  margin-right: 0.4rem;
+}
+.run-event .what .desc { color: var(--ink-3); font-size: 0.85rem; }
+.run-event .phase {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  padding: 2px 8px;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .run-event { grid-template-columns: 70px 1fr; }
+  .run-event .phase { grid-column: 1 / -1; justify-self: start; }
+}
+
+/* ─────────────────────────────────────────────────────────
+   Insights
+───────────────────────────────────────────────────────── */
+.insights {
+  margin-top: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--line-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+@media (max-width: 880px) { .insights { grid-template-columns: 1fr; } }
+.insight {
+  background: var(--bg);
+  padding: 1.5rem 1.6rem 1.65rem;
+  display: flex; flex-direction: column; gap: 0.6rem;
+}
+.insight .n {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-4);
+  letter-spacing: 0.08em;
+}
+.insight h3 { font-size: 1.05rem; }
+.insight p { color: var(--ink-2); font-size: 0.93rem; line-height: 1.6; margin: 0; }
+.insight .cites {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+
+/* ─────────────────────────────────────────────────────────
+   Orchestration diagram
+───────────────────────────────────────────────────────── */
+.orch {
+  margin-top: 1.5rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: clamp(1.25rem, 2.5vw, 2rem);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: clamp(1rem, 3vw, 2.5rem);
+  align-items: stretch;
+}
+@media (max-width: 880px) { .orch { grid-template-columns: 1fr; } }
+.orch-col h4 {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 0.75rem;
+}
+.orch-col .nodes { display: grid; gap: 8px; }
+.orch-node {
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.85rem;
+  color: var(--ink);
+  display: grid; gap: 2px;
+}
+.orch-node .sub { font-family: var(--mono); font-size: 0.72rem; color: var(--ink-3); }
+.orch-node.queue { border-color: var(--teal-line); background: color-mix(in oklab, var(--panel) 75%, var(--teal-soft)); }
+
+.orch-arrows {
+  align-self: center;
+  color: var(--ink-4);
+  font-family: var(--mono);
+  display: grid;
+  gap: 0.75rem;
+  text-align: center;
+}
+.orch-arrows .a {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.orch-arrows .line {
+  width: clamp(40px, 6vw, 100px);
+  height: 1px;
+  background: var(--line);
+  position: relative;
+}
+.orch-arrows .line::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: -3px;
+  width: 7px; height: 7px;
+  border-right: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  transform: rotate(45deg);
+}
+.orch-arrows .lbl { font-size: 0.72rem; color: var(--ink-3); }
+@media (max-width: 880px) {
+  .orch-arrows { transform: rotate(90deg); justify-self: center; }
+}
+
+/* ─────────────────────────────────────────────────────────
+   Stack table
+───────────────────────────────────────────────────────── */
+.stack {
+  margin-top: 1.5rem;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--line-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+@media (max-width: 880px) { .stack { grid-template-columns: 1fr; } }
+.stack-col {
+  background: var(--bg);
+  padding: 1.25rem 1.35rem;
+}
+.stack-col h4 {
+  font-size: 0.76rem;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  color: var(--ink-3);
+  letter-spacing: 0.07em;
+  margin-bottom: 0.8rem;
+}
+.stack-col ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.35rem; }
+.stack-col li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: var(--ink-2);
+  padding: 0.35rem 0;
+  border-bottom: 1px dashed transparent;
+}
+.stack-col li .ver {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink-4);
+}
+
+/* ─────────────────────────────────────────────────────────
+   Footer
+───────────────────────────────────────────────────────── */
+footer {
+  padding: 3rem 0 5rem;
+  color: var(--ink-3);
+  font-size: 0.88rem;
+  line-height: 1.6;
+  border-top: 1px solid var(--line-soft);
+  margin-top: 3rem;
+}
+footer .f-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2rem;
+  align-items: end;
+}
+@media (max-width: 640px) { footer .f-grid { grid-template-columns: 1fr; } }
+footer .meta {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--ink-4);
+}
+
+/* ─────────────────────────────────────────────────────────
+   Reveal on scroll
+───────────────────────────────────────────────────────── */
+.reveal {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 600ms var(--ease), transform 600ms var(--ease);
+}
+.reveal.in { opacity: 1; transform: translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .reveal { opacity: 1; transform: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ─────────────────────────────── TOP BAR ─────────────────────────────── -->
+<div class="topbar" id="topbar">
+  <div class="topbar-inner">
+    <span class="brand">
+      <span class="brand-mark">T</span>
+      <span class="brand-name">TARS</span>
+      <span class="brand-sub">· deep-dive</span>
+    </span>
+    <nav class="topnav">
+      <a href="#overview">Overview</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#memory">Memory</a>
+      <a href="#agents">Agents</a>
+      <a href="#executor">Executor</a>
+      <a href="#insights">Insights</a>
+    </nav>
+  </div>
+</div>
+
+<main class="page">
+
+<!-- ─────────────────────────────── HERO ─────────────────────────────── -->
+<section class="hero" id="overview">
+  <div class="eyebrow">
+    <span class="ping" aria-hidden="true"></span>
+    <span>A personal work OS</span>
+    <span class="num">· 0.2</span>
+  </div>
+
+  <h1>
+    An autonomous engineer, <em>built on a reducer, a queue, and a vector index.</em>
+  </h1>
+
+  <p class="lead">
+    TARS is a Personal AI Work OS for a senior IC at Microsoft. It watches your Azure DevOps queue,
+    plans the work, writes the code in an isolated git worktree, reviews its own diff, waits for CI,
+    and opens a draft PR — while keeping humans in the loop at every gate.
+    This page is the guided tour — product, then architecture, then the non-obvious parts.
+  </p>
+
+  <div class="hero-grid reveal">
+    <div class="hero-stat">
+      <div class="k">5</div>
+      <div class="v">layers, loose-coupled</div>
+    </div>
+    <div class="hero-stat">
+      <div class="k">15</div>
+      <div class="v">registered agents</div>
+    </div>
+    <div class="hero-stat">
+      <div class="k">6</div>
+      <div class="v">FSM phases · 22 event types</div>
+    </div>
+    <div class="hero-stat">
+      <div class="k">1,536</div>
+      <div class="v">dim embeddings · pgvector</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────── DIFFERENTIATORS ─────────────────────────────── -->
+<section id="differentiators">
+  <div class="header-block reveal">
+    <div class="eyebrow"><span class="num">01</span><span class="dot"></span><span>what it is, concretely</span></div>
+    <h2 style="margin-top:1rem">Four ideas that make TARS different.</h2>
+    <p class="lead" style="margin-top:0.75rem">
+      Most "AI assistants" are a chat box with tools. TARS is closer to a build system with opinions —
+      a state machine for your actual work, persistent memory across sessions, and a clear separation
+      between the things an agent <em>does</em> and the things TARS <em>tracks</em>.
+    </p>
+  </div>
+
+  <div class="diffs">
+    <div class="diff reveal">
+      <span class="tag">01 · Autonomous, not chatty</span>
+      <span class="t">Work items move without you.</span>
+      <span class="d">
+        A work-item scanner polls ADO every five minutes. Classified "code-change" tasks go to a planner,
+        then a coding agent, a review agent, a verify agent, and a PR submitter — each an event in an
+        append-only log. You approve gates, not each step.
+      </span>
+    </div>
+    <div class="diff reveal">
+      <span class="tag">02 · Pure-reducer FSM</span>
+      <span class="t">The state machine is a function.</span>
+      <span class="d">
+        <code>reducer(state, event) → {nextState, effects[]}</code>. No side-effects in the transition — effects
+        are data, enqueued separately. Worker crashes don't corrupt state; replay the event log and you're back.
+      </span>
+    </div>
+    <div class="diff reveal">
+      <span class="tag">03 · Memory, not cache</span>
+      <span class="t">Every agent output is a record.</span>
+      <span class="d">
+        Briefings, standups, notes, plans — all land in one <code>records</code> table. Chunked, embedded with
+        <code>text-embedding-3-small</code>, retrieved with cosine similarity plus a 1.5× recency boost for items
+        under 14 days old.
+      </span>
+    </div>
+    <div class="diff reveal">
+      <span class="tag">04 · MCP as tracking bus</span>
+      <span class="t">Agents own their tools. TARS owns the ledger.</span>
+      <span class="d">
+        The coding agent uses the repo's own git/npm/az CLIs via Claude Code's native tools. TARS's MCP server
+        exposes only tracking verbs — <code>record_branch</code>, <code>record_pr</code>, <code>update_progress</code> —
+        so the dashboard reflects reality without couplings leaking.
+      </span>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────── ARCHITECTURE ─────────────────────────────── -->
+<section id="architecture">
+  <div class="header-block reveal">
+    <div class="eyebrow"><span class="num">02</span><span class="dot"></span><span>architecture explorer</span></div>
+    <h2 style="margin-top:1rem">Five layers. No layer skips a layer.</h2>
+    <p class="lead" style="margin-top:0.75rem">
+      A discipline, not a suggestion: the UI never reaches into Azure DevOps directly — it goes through an
+      API route, which enqueues a BullMQ job, which wakes a worker, which runs an agent, which writes to Postgres.
+      Click a layer.
+    </p>
+  </div>
+
+  <div class="layers">
+    <div class="layer-stack" role="tablist" aria-label="Architecture layers">
+      <button class="layer" role="tab" aria-selected="true" data-layer="l1">
+        <span class="mark">L1</span>
+        <span class="head">
+          <span class="t">Mission Control</span>
+          <span class="s">Next.js 16 · React 19 · Tailwind 4</span>
+        </span>
+        <span class="arrow">↓</span>
+      </button>
+      <button class="layer" role="tab" aria-selected="false" data-layer="l2">
+        <span class="mark">L2</span>
+        <span class="head">
+          <span class="t">Agent Platform</span>
+          <span class="s">BullMQ · orchestrator · 15 agents</span>
+        </span>
+        <span class="arrow">↓</span>
+      </button>
+      <button class="layer" role="tab" aria-selected="false" data-layer="l3">
+        <span class="mark">L3</span>
+        <span class="head">
+          <span class="t">Knowledge Engine</span>
+          <span class="s">Drizzle · Postgres 16 · pgvector</span>
+        </span>
+        <span class="arrow">↓</span>
+      </button>
+      <button class="layer" role="tab" aria-selected="false" data-layer="l4">
+        <span class="mark">L4</span>
+        <span class="head">
+          <span class="t">Integrations</span>
+          <span class="s">M365 Graph · Azure CLI · Engage MCP</span>
+        </span>
+        <span class="arrow">↓</span>
+      </button>
+      <button class="layer" role="tab" aria-selected="false" data-layer="l5">
+        <span class="mark">L5</span>
+        <span class="head">
+          <span class="t">Voice Service</span>
+          <span class="s">Bun HTTP :3100 · Kokoro TTS · whisper.cpp</span>
+        </span>
+        <span class="arrow">·</span>
+      </button>
+    </div>
+
+    <div class="layer-detail" id="layer-detail" aria-live="polite">
+      <!-- filled by JS -->
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────── CONTRACT ─────────────────────────────── -->
+<section id="contract">
+  <div class="header-block reveal">
+    <div class="eyebrow"><span class="num">03</span><span class="dot"></span><span>the agent contract</span></div>
+    <h2 style="margin-top:1rem">Every agent is the same eleven lines.</h2>
+    <p class="lead" style="margin-top:0.75rem">
+      A daily briefing, a monthly retro, a background ADO sync, a one-on-one prep — all implement the same
+      abstract class. Context is built once by the orchestrator; the agent just gets a string and returns a string.
+      <code>validate()</code> is the only contract they can fail.
+    </p>
+  </div>
+
+  <div class="contract">
+    <div class="code-card">
+      <header>
+        <span class="path">packages/agents/src/shared/base.ts</span>
+        <span class="cite">L1–L11</span>
+      </header>
+<pre><span class="kw">export abstract class</span> <span class="id">AgentDefinition</span> {
+  <span class="kw">abstract readonly</span> agentName: <span class="id">string</span>;
+  <span class="kw">abstract readonly</span> recordType: <span class="id">string</span>;
+  <span class="kw">abstract readonly</span> epoch: <span class="id">string</span>;
+
+  <span class="cm">/** Skip full context (ADO, M365, embeddings) for lightweight agents */</span>
+  <span class="kw">readonly</span> skipContext?: <span class="id">boolean</span>;
+
+  <span class="kw">abstract</span> execute(context: <span class="id">string</span>, data: <span class="id">Record</span>&lt;<span class="id">string</span>, <span class="kw">unknown</span>&gt;): <span class="id">Promise</span>&lt;<span class="id">string</span>&gt;;
+  <span class="kw">abstract</span> validate(output: <span class="id">string</span>): <span class="id">string</span>;
+}</pre>
+    </div>
+
+    <div class="reading">
+      <h3 style="margin-bottom:1rem">What each field earns.</h3>
+      <p><strong style="color:var(--ink);font-weight:500">agentName</strong> &mdash; the key in the registry
+        (<span class="cite">packages/agents/src/shared/registry.ts:18–34</span>). 15 instances, looked up by string. It's how schedulers enqueue without holding a reference.</p>
+      <p><strong style="color:var(--ink);font-weight:500">recordType</strong> &mdash; the slot in Postgres where output lands. Unique index on
+        <code>(type, sourceAgent, dateKey)</code> enforces one canonical output per agent per day.</p>
+      <p><strong style="color:var(--ink);font-weight:500">epoch</strong> &mdash; <code>"daily"</code>, <code>"weekly"</code>, <code>"monthly"</code>, <code>"adhoc"</code>, <code>"system"</code>.
+        Drives retention, rollup, and which long-term context gets folded into the next call.</p>
+      <p><strong style="color:var(--ink);font-weight:500">skipContext</strong> &mdash; the escape hatch. The knowledge indexer doesn't need a briefing of the world;
+        it needs raw rows. Skipping saves the embedding round-trip.</p>
+      <p><strong style="color:var(--ink);font-weight:500">validate()</strong> &mdash; executed before anything hits the DB. A daily briefing under 100 characters is rejected; a daily note
+        under 200 is rejected. The one guard-rail an agent must pass.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────── AGENTS ─────────────────────────────── -->
+<section id="agents">
+  <div class="header-block reveal">
+    <div class="eyebrow"><span class="num">04</span><span class="dot"></span><span>the registry</span></div>
+    <h2 style="margin-top:1rem">Fifteen agents, four rhythms.</h2>
+    <p class="lead" style="margin-top:0.75rem">
+      Scheduled agents run on cron. Background agents keep the system's internal state coherent. On-demand
+      agents are triggered by you. The executor is a subsystem, not an agent.
+    </p>
+  </div>
+
+  <div class="agents" id="agents-grid" role="list">
+    <!-- filled by JS -->
+  </div>
+
+  <div class="agent-legend">
+    <span><i style="background:var(--teal)"></i> scheduled</span>
+    <span><i style="background:var(--violet)"></i> background</span>
+    <span><i style="background:var(--amber)"></i> on-demand</span>
+    <span><i style="background:var(--ink-3)"></i> system</span>
+    <span class="cite">packages/agents/src/shared/registry.ts:18–34</span>
+  </div>
+</section>
+
+<!-- ─────────────────────────────── MEMORY ─────────────────────────────── -->
+<section id="memory">
+  <div class="header-block reveal">
+    <div class="eyebrow"><span class="num">05</span><span class="dot"></span><span>unified memory</span></div>
+    <h2 style="margin-top:1rem">One table. Vectors on the side.</h2>
+    <p class="lead" style="margin-top:0.75rem">
+      TARS doesn't have "memory" as a separate subsystem. It has <code>records</code> — one table where every
+      agent writes its output — and <code>embeddings</code>, a per-chunk RAG index.
+      A recency boost nudges younger memories up the ranking.
+    </p>
+  </div>
+
+  <div class="memory">
+    <div class="memory-notes">
+      <div class="row">
+        <span>
+          <div class="lbl">records</div>
+          <div class="sub">UUID, type, epoch, dateKey, sourceAgent, content, JSONB metadata, status ∈ {draft, approved, published, archived}</div>
+        </span>
+        <span class="cite">schema/records.ts:11–38</span>
+      </div>
+      <div class="row">
+        <span>
+          <div class="lbl">embeddings</div>
+          <div class="sub">vector(1536), chunkIndex, chunkText, FK → records. Manual HNSW index, cosine distance.</div>
+        </span>
+        <span class="cite">schema/embeddings.ts:12–30</span>
+      </div>
+      <div class="row">
+        <span>
+          <div class="lbl">executor_events</div>
+          <div class="sub">append-only run log. <code>UNIQUE(idempotencyKey) WHERE NOT NULL</code> — the conditional index that makes retries safe.</div>
+        </span>
+        <span class="cite">schema/executor-events.ts:15–35</span>
+      </div>
+      <div class="row">
+        <span>
+          <div class="lbl">executor_runs</div>
+          <div class="sub">materialized projection of events. Phase, substate, costUsd, prId — updated directly, not replayed.</div>
+        </span>
+        <span class="cite">schema/executor-runs.ts:3–26</span>
+      </div>
+      <div class="row">
+        <span>
+          <div class="lbl">executor_task_iterations</div>
+          <div class="sub">per-phase retry rows (coding, review, verify). UNIQUE(runId, phase, iterationNumber).</div>
+        </span>
+        <span class="cite">schema/executor-task-iterations.ts:16–44</span>
+      </div>
+    </div>
+
+    <div class="code-card">
+      <header>
+        <span class="path">knowledge-engine/src/retrieval/semantic-search.ts</span>
+        <span class="cite">L28–L41</span>
+      </header>
+<pre><span class="kw">SELECT</span>
+  e.chunk_text,
+  r.type,
+  r.date_key,
+  r.id <span class="kw">as</span> record_id,
+  (<span class="str">1</span> - (e.embedding &lt;=&gt; $1::vector)) *
+    <span class="kw">CASE WHEN</span> r.created_at &gt; <span class="id">NOW</span>() - <span class="id">INTERVAL</span> <span class="str">'14 days'</span>
+         <span class="kw">THEN</span> <span class="str">1.5</span> <span class="kw">ELSE</span> <span class="str">1.0</span> <span class="kw">END</span>
+    <span class="kw">AS</span> score
+<span class="kw">FROM</span> embeddings e
+<span class="kw">JOIN</span> records r <span class="kw">ON</span> e.record_id = r.id
+<span class="kw">WHERE</span> r.status <span class="kw">IN</span> (<span class="str">'approved'</span>, <span class="str">'published'</span>)
+<span class="kw">ORDER BY</span> score <span class="kw">DESC</span>
+<span class="kw">LIMIT</span> $2</pre>
+    </div>
+  </div>
+
+  <p style="margin-top:1.5rem;color:var(--ink-2);max-width:var(--measure)">
+    Agents call <code>buildSemanticContext()</code> via dynamic import so the orchestrator degrades gracefully
+    if OpenAI is unreachable — an empty string is still a valid prompt.
+    <span class="cite">orchestrator/context.ts:242–258</span>
+  </p>
+</section>
+
+<!-- ─────────────────────────────── ORCHESTRATION ─────────────────────────────── -->
+<section id="orchestration">
+  <div class="header-block reveal">
+    <div class="eyebrow"><span class="num">06</span><span class="dot"></span><span>orchestration</span></div>
+    <h2 style="margin-top:1rem">Redis is the spine.</h2>
+    <p class="lead" style="margin-top:0.75rem">
+      Everything that runs goes through a BullMQ queue. The scheduler enqueues, workers consume, effects
+      enqueue again. No agent is executed directly from an API route or a cron tick.
+    </p>
+  </div>
+
+  <div class="orch">
+    <div class="orch-col">
+      <h4>Scheduler</h4>
+      <div class="nodes">
+        <div class="orch-node">
+          <span>DailyBriefingAgent</span>
+          <span class="sub">cron 30 7 * * 1-5</span>
+        </div>
+        <div class="orch-node">
+          <span>StandupAgent</span>
+          <span class="sub">cron 45 8 * * 1-5</span>
+        </div>
+        <div class="orch-node">
+          <span>ADOSyncAgent</span>
+          <span class="sub">every 15 min</span>
+        </div>
+        <div class="orch-node">
+          <span>WeeklyNotesAgent</span>
+          <span class="sub">cron 30 17 * * 5</span>
+        </div>
+        <div class="orch-node">
+          <span>WorkItemScanner</span>
+          <span class="sub">EXECUTOR_SCAN_INTERVAL_MS</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="orch-arrows" aria-hidden="true">
+      <div class="a"><span class="lbl">enqueue</span><span class="line"></span></div>
+      <div class="a"><span class="lbl">job</span><span class="line"></span></div>
+      <div class="a"><span class="lbl">effects</span><span class="line"></span></div>
+    </div>
+
+    <div class="orch-col">
+      <h4>BullMQ queues</h4>
+      <div class="nodes">
+        <div class="orch-node queue"><span>tars:pipeline</span><span class="sub">concurrency 1 · 1 job / 5 s</span></div>
+        <div class="orch-node queue"><span>tars:coding</span><span class="sub">concurrency 2</span></div>
+        <div class="orch-node queue"><span>tars:executor</span><span class="sub">FSM advance</span></div>
+        <div class="orch-node queue"><span>tars:planner</span><span class="sub">classify · enrich · synth</span></div>
+        <div class="orch-node queue"><span>tars:indexer</span><span class="sub">chunk + embed</span></div>
+        <div class="orch-node queue"><span>tars:sync</span><span class="sub">ADO snapshots</span></div>
+      </div>
+    </div>
+  </div>
+
+  <p style="margin-top:1.5rem;color:var(--ink-3);max-width:var(--measure);font-size:0.9rem">
+    The scheduler sets <code>jobId</code> deterministically — <code>briefing-2026-04-24</code>, <code>review-&lt;runId&gt;-&lt;iter&gt;</code> — so re-enqueuing
+    the same logical job is a no-op. Retries never double-fire.
+    <span class="cite">packages/agents/src/queue/scheduler.ts</span>
+  </p>
+</section>
+
+<!-- ─────────────────────────────── EXECUTOR FSM ─────────────────────────────── -->
+<section id="executor">
+  <div class="header-block reveal">
+    <div class="eyebrow"><span class="num">07</span><span class="dot"></span><span>the executor</span></div>
+    <h2 style="margin-top:1rem">Six phases, one reducer.</h2>
+    <p class="lead" style="margin-top:0.75rem">
+      The autonomous executor turns an ADO work item into a draft PR. Click each phase to see what events it consumes,
+      what state it admits, and what effects it emits. The reducer is pure; effects are data; side effects happen in
+      the effect-scheduler.
+    </p>
+  </div>
+
+  <div class="fsm" id="fsm">
+    <div class="fsm-phases" role="tablist" aria-label="Executor phases">
+      <button class="fsm-phase" role="tab" aria-selected="true" data-phase="planning">
+        <span class="n">01</span><span class="name">planning</span>
+      </button>
+      <button class="fsm-phase" role="tab" aria-selected="false" data-phase="implementing">
+        <span class="n">02</span><span class="name">implementing</span>
+      </button>
+      <button class="fsm-phase" role="tab" aria-selected="false" data-phase="reviewing">
+        <span class="n">03</span><span class="name">reviewing</span>
+      </button>
+      <button class="fsm-phase" role="tab" aria-selected="false" data-phase="verifying">
+        <span class="n">04</span><span class="name">verifying</span>
+      </button>
+      <button class="fsm-phase" role="tab" aria-selected="false" data-phase="submitting">
+        <span class="n">05</span><span class="name">submitting</span>
+      </button>
+      <button class="fsm-phase" role="tab" aria-selected="false" data-phase="terminal">
+        <span class="n">06</span><span class="name">terminal</span>
+      </button>
+    </div>
+
+    <div class="fsm-body" id="fsm-body" aria-live="polite">
+      <!-- filled by JS -->
+    </div>
+
+    <div class="fsm-blurb" id="fsm-blurb"></div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────── CONCRETE RUN ─────────────────────────────── -->
+<section id="run">
+  <div class="header-block reveal">
+    <div class="eyebrow"><span class="num">08</span><span class="dot"></span><span>a concrete run</span></div>
+    <h2 style="margin-top:1rem">ADO 411043 &rarr; draft PR, one event at a time.</h2>
+    <p class="lead" style="margin-top:0.75rem">
+      Every row below is a real event type from <code>EXECUTOR_EVENT_TYPES</code>.
+      Every idempotency key is the format the code actually writes. Press play to watch the reducer move.
+    </p>
+  </div>
+
+  <div class="run">
+    <div class="run-header">
+      <div>
+        <span class="t">executor_runs · </span>
+        <span class="id">id=46d6d485</span>
+        <span style="color:var(--ink-4);margin:0 8px">·</span>
+        <span>taskId=yammer/411043</span>
+      </div>
+      <div class="run-controls">
+        <button id="run-play" aria-pressed="false">▶ play</button>
+        <button id="run-reset">reset</button>
+      </div>
+      <div class="status"><span class="ping"></span><span id="run-status">idle</span></div>
+    </div>
+    <div class="run-events" id="run-events"></div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────── INSIGHTS ─────────────────────────────── -->
+<section id="insights">
+  <div class="header-block reveal">
+    <div class="eyebrow"><span class="num">09</span><span class="dot"></span><span>insights from the codebase</span></div>
+    <h2 style="margin-top:1rem">The non-obvious load-bearing parts.</h2>
+    <p class="lead" style="margin-top:0.75rem">
+      Things you'd only notice by reading the code or chasing a production bug. Each one earns its keep.
+    </p>
+  </div>
+
+  <div class="insights">
+    <div class="insight reveal">
+      <span class="n">I · 01</span>
+      <h3>Idempotency keys are <em>run-scoped</em>, never task-scoped.</h3>
+      <p>
+        Format: <code>&lt;kind&gt;:&lt;runId&gt;</code>, e.g. <code>discover:46d6d485</code>. A conditional unique index —
+        <code>UNIQUE (idempotency_key) WHERE idempotency_key IS NOT NULL</code> — silently drops replays.
+        Writing task-scoped keys collides across runs of the same ADO item, which happened once and never again.
+      </p>
+      <div class="cites">
+        <span class="cite">schema/executor-events.ts:31–33</span>
+        <span class="cite">force-enter-work-item/route.ts:94</span>
+      </div>
+    </div>
+
+    <div class="insight reveal">
+      <span class="n">I · 02</span>
+      <h3>The FSM is a function, not a library.</h3>
+      <p>
+        <code>reducer(state, event) → {nextState, effects[]}</code>. No Redis calls, no DB calls, no awaits. Effects are
+        pure data — <code>{kind:"dispatch_coding", runId, …}</code>. The worker applies them <em>after</em> state is
+        computed, so a crash mid-effect leaves a consistent event log to replay.
+      </p>
+      <div class="cites">
+        <span class="cite">executor/fsm.ts:9–46</span>
+        <span class="cite">executor/effects.ts:9–70</span>
+      </div>
+    </div>
+
+    <div class="insight reveal">
+      <span class="n">I · 03</span>
+      <h3>MCP exposes verbs, not capabilities.</h3>
+      <p>
+        The coding agent's MCP server offers <code>update_progress</code>, <code>record_branch</code>,
+        <code>record_pr</code>, <code>update_ado_status</code>. Nothing that does git. The agent uses the repo's own
+        <code>CLAUDE.md</code> skills for branching, committing, pushing. TARS tracks what happened; it doesn't impose how.
+      </p>
+      <div class="cites">
+        <span class="cite">interactive/coding/mcp.ts:44–199</span>
+      </div>
+    </div>
+
+    <div class="insight reveal">
+      <span class="n">I · 04</span>
+      <h3><code>update_ado_status</code> refuses to close.</h3>
+      <p>
+        The tool enumerates <em>forbidden</em> states — <code>Closed</code>, <code>Done</code>, <code>Resolved</code>,
+        <code>Completed</code>, <code>Removed</code> — and rejects them at the MCP boundary. A hallucinating agent can't
+        mark a work item done; that's a human's job via the dashboard.
+      </p>
+      <div class="cites">
+        <span class="cite">interactive/coding/mcp.ts:174–199</span>
+      </div>
+    </div>
+
+    <div class="insight reveal">
+      <span class="n">I · 05</span>
+      <h3>Recency as a multiplier, not a filter.</h3>
+      <p>
+        Semantic search doesn't cap context to recent docs — it multiplies cosine similarity by 1.5× when the record is
+        under 14 days old. A stale-but-relevant monthly note still surfaces; a current-and-relevant one surfaces first.
+      </p>
+      <div class="cites">
+        <span class="cite">retrieval/semantic-search.ts:33–34</span>
+      </div>
+    </div>
+
+    <div class="insight reveal">
+      <span class="n">I · 06</span>
+      <h3>Cost and iteration caps are gates, not kills.</h3>
+      <p>
+        If review loops exceed 3 iterations <em>or</em> spend &gt; $20, the state machine doesn't fail — it transitions
+        to <code>awaiting-review-caps-gate</code>, opens a human signal, and waits. You can approve a budget top-up and
+        continue, or abandon. Defaults live in one place.
+      </p>
+      <div class="cites">
+        <span class="cite">constants.ts:187–196</span>
+        <span class="cite">executor/fsm.ts:365–389</span>
+      </div>
+    </div>
+
+    <div class="insight reveal">
+      <span class="n">I · 07</span>
+      <h3>Terminal statuses live in two places, on purpose.</h3>
+      <p>
+        <code>CODING_TASK_TERMINAL_STATUSES = ["done","failed","abandoned","blocked"]</code> appears in the constants file
+        <em>and</em> in the partial-index <code>WHERE</code> clause of the worktree-pool slot index. A comment warns: if you
+        drift them, pool queries silently seq-scan. The coupling is known, named, and load-bearing.
+      </p>
+      <div class="cites">
+        <span class="cite">constants.ts:54–64</span>
+        <span class="cite">schema/coding-agent-tasks.ts</span>
+      </div>
+    </div>
+
+    <div class="insight reveal">
+      <span class="n">I · 08</span>
+      <h3>The voice service serializes ONNX inference on purpose.</h3>
+      <p>
+        Concurrent Kokoro TTS inferences thrash CPU, making each ~3× slower. A single-request semaphore gates real-time
+        inference; pre-cached openers ("Humor setting at seventy five percent. Also, working on it.") bypass it entirely.
+        Observed latency wins more than parallelism would.
+      </p>
+      <div class="cites">
+        <span class="cite">voice-service/server.ts:337–365</span>
+      </div>
+    </div>
+
+    <div class="insight reveal">
+      <span class="n">I · 09</span>
+      <h3>Windows <code>az.cmd</code> quoting is a module of its own.</h3>
+      <p>
+        Node's <code>execFile</code> with <code>shell:true</code> on Windows re-splits arguments through cmd.exe.
+        Values with spaces, quotes, or JSON vanish. <code>exec-cli.ts</code> pre-quotes every argument; Unix gets a thin
+        pass-through. Ten <code>az</code> call sites fixed in one sweep.
+      </p>
+      <div class="cites">
+        <span class="cite">packages/shared/src/exec-cli.ts:32–80</span>
+      </div>
+    </div>
+
+    <div class="insight reveal">
+      <span class="n">I · 10</span>
+      <h3>Workers pause on flags, not kills.</h3>
+      <p>
+        Six Redis keys — <code>tars:flags:review-paused</code>, <code>coding-paused</code>, <code>pr-handler-paused</code>, etc. —
+        let you freeze a single phase mid-pipeline without touching BullMQ. Paused jobs throw "phase paused — retry later";
+        BullMQ's exponential backoff handles the rest.
+      </p>
+      <div class="cites">
+        <span class="cite">constants.ts:175–185</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────── STACK ─────────────────────────────── -->
+<section id="stack">
+  <div class="header-block reveal">
+    <div class="eyebrow"><span class="num">10</span><span class="dot"></span><span>the stack</span></div>
+    <h2 style="margin-top:1rem">What's actually installed.</h2>
+    <p class="lead" style="margin-top:0.75rem">
+      Every version from a real <code>package.json</code>. Bun is the package manager; npm is not.
+    </p>
+  </div>
+
+  <div class="stack">
+    <div class="stack-col">
+      <h4>Frontend · Mission Control</h4>
+      <ul>
+        <li>Next.js <span class="ver">16.1.6</span></li>
+        <li>React · React DOM <span class="ver">19.2.3</span></li>
+        <li>Tailwind CSS <span class="ver">4.x</span></li>
+        <li>Radix UI <span class="ver">1.4.3</span></li>
+        <li>Lucide icons <span class="ver">0.577</span></li>
+        <li>react-markdown <span class="ver">10.1.0</span></li>
+        <li>onnxruntime-web <span class="ver">1.19.0</span></li>
+        <li>hey-buddy-onnx <span class="ver">0.1.2</span></li>
+      </ul>
+    </div>
+    <div class="stack-col">
+      <h4>Backend · Agents &amp; Knowledge</h4>
+      <ul>
+        <li>Drizzle ORM <span class="ver">0.44.0</span></li>
+        <li>Drizzle Kit <span class="ver">0.31.0</span></li>
+        <li>PostgreSQL (pgvector) <span class="ver">pg16</span></li>
+        <li>BullMQ <span class="ver">5.0.0</span></li>
+        <li>ioredis · redis <span class="ver">5.6 · 5.11</span></li>
+        <li>@anthropic-ai/claude-agent-sdk <span class="ver">0.2.81</span></li>
+        <li>OpenAI text-embedding-3-small <span class="ver">1536d</span></li>
+        <li>Zod <span class="ver">4.3.6</span></li>
+      </ul>
+    </div>
+    <div class="stack-col">
+      <h4>Infra · Integrations · Voice</h4>
+      <ul>
+        <li>Docker Compose <span class="ver">pg · redis · voice</span></li>
+        <li>@microsoft/microsoft-graph-client <span class="ver">3.0.0</span></li>
+        <li>@azure/identity <span class="ver">4.0.0</span></li>
+        <li>az CLI (subprocess) <span class="ver">shell-quoted</span></li>
+        <li>Bun runtime <span class="ver">latest</span></li>
+        <li>Kokoro TTS (kokoro-js) <span class="ver">1.2.1</span></li>
+        <li>whisper.cpp <span class="ver">v1.7.1</span></li>
+        <li>simple-git <span class="ver">3.33.0</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="page" style="padding:0">
+    <div class="f-grid">
+      <div>
+        <p style="color:var(--ink-2);max-width:60ch;margin-bottom:0.75rem">
+          This page was built by reading the code. Every claim has a <span class="cite">file:line</span> next to it.
+          If a detail is wrong, the code is the source of truth — please open an issue.
+        </p>
+        <p class="meta">TARS · autonomous executor v0.2 · branch feature/autonomous-executor-v0.1</p>
+      </div>
+      <div class="meta" style="text-align:right">
+        <div>generated 2026-04-24</div>
+        <div>one HTML file · zero dependencies</div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</main>
+
+<script>
+/* ─────────────────────────────────────────────────────────
+   Data
+───────────────────────────────────────────────────────── */
+
+const LAYER_DATA = {
+  l1: {
+    title: "L1 · Mission Control",
+    subtitle: "Next.js 16.1.6 · React 19 · Tailwind 4 · shadcn/ui",
+    where: "mission-control/",
+    what: `The dashboard. Dark-first, content-focused, refined minimalism. Sticky top bar, executor Kanban, task workspaces with SSE-streamed agent chat.`,
+    items: [
+      ["app/(views)/executor — autonomous run board", "RunKanban.tsx"],
+      ["app/(views)/task/[id] — coding task workspace", "lib/coding-agent-session.ts:1–703"],
+      ["app/(views)/briefing — daily synthesis + regenerate", "app/api/stream — SSE bridge"],
+      ["app/api/executor/** — 36 route.ts files", "force-enter, signals, lifecycle, dispatch-coding"],
+      ["app/api/coding-tasks/** — dispatch, chat stream, approve", "12 route.ts files"],
+      ["lib/coding-mcp-server.ts — tracking verbs only", "update_progress, record_branch, record_pr"],
+      ["lib/auth-status.ts — auto-rotate NPM PAT, az login refresh", "checkAllTokens() — parallel per-org"],
+    ],
+  },
+  l2: {
+    title: "L2 · Agent Platform",
+    subtitle: "BullMQ · orchestrator · 15 registered agents · executor FSM",
+    where: "packages/agents/ · agent-platform/",
+    what: `All agent execution lives here. No API route runs an agent directly; everything goes through a queue. The scheduler enqueues on cron; workers consume with bounded concurrency. The executor is a separate FSM subsystem.`,
+    items: [
+      ["shared/base.ts — the abstract contract (11 lines)", "AgentDefinition"],
+      ["shared/registry.ts — 15 agent instances", "getAgent(name)"],
+      ["orchestrator/index.ts — context, execute, validate, persist", "runAgent()"],
+      ["queue/scheduler.ts — cron → BullMQ, deterministic jobIds", "briefing-<date>, review-<runId>-<iter>"],
+      ["queue/workers.ts — pipeline/coding/indexer/sync workers", "rate: 1 job / 5 s"],
+      ["executor/fsm.ts — pure reducer", "reducer(state, event) → {nextState, effects[]}"],
+      ["executor/worker.ts — load state, apply reducer, emit effects", "replay from lastEventSequence"],
+      ["validation/** — Zod schemas for every event payload", "ExecutorEventT discriminated union"],
+    ],
+  },
+  l3: {
+    title: "L3 · Knowledge Engine",
+    subtitle: "Drizzle ORM · Postgres 16 + pgvector · event-sourced executor log",
+    where: "knowledge-engine/",
+    what: `Durable state. One records table unifies every agent output. Executor runs are a materialized projection; executor_events are the append-only log with a conditional unique index for idempotency. Embeddings are a per-chunk RAG index.`,
+    items: [
+      ["schema/records.ts — UUID, type, epoch, dateKey, jsonb", "status ∈ draft|approved|published|archived"],
+      ["schema/embeddings.ts — vector(1536), HNSW index", "cosine distance via <=> operator"],
+      ["schema/executor-runs.ts — phase, substate, costUsd, prId", "materialized projection"],
+      ["schema/executor-events.ts — append-only, idempotent", "UNIQUE(idempotencyKey) WHERE NOT NULL"],
+      ["schema/executor-task-iterations.ts — per-phase retries", "UNIQUE(runId, phase, iterationNumber)"],
+      ["indexer/chunker.ts — split by ## headers, ~500 tokens", "fallback to paragraph at cap"],
+      ["indexer/embedder.ts — OpenAI batch of 20", "text-embedding-3-small"],
+      ["retrieval/semantic-search.ts — cosine · 1.5× recency boost", "status IN (approved, published)"],
+    ],
+  },
+  l4: {
+    title: "L4 · Integrations",
+    subtitle: "M365 Graph · Azure CLI wrappers · Engage MCP · web search",
+    where: "integrations/",
+    what: `All external-system access sits behind typed adapters. ADO is reached via the az CLI as a subprocess — no SDK. Shell-arg quoting is centralised because Windows cmd.exe re-splits arguments.`,
+    items: [
+      ["m365/graph-adapter.ts — OAuth client-credentials flow", "EmailSummary, TeamsMessage, CalendarEvent"],
+      ["azure-cli/work-items.ts — az boards work-item", "create | update | show --expand all"],
+      ["azure-cli/prs.ts — az repos pr", "list --status active · show --id"],
+      ["azure-cli/runner.ts — subprocess with --output json", "always JSON, never table"],
+      ["packages/shared/src/exec-cli.ts — Windows arg quoting", "quoteWindowsArg() · 32–80"],
+      ["engageMcp/client.ts — Engage posts & metrics", "stubbed MCP client"],
+      ["webSearch/ — searcher + content fetcher", "link extraction"],
+    ],
+  },
+  l5: {
+    title: "L5 · Voice Service",
+    subtitle: "Bun HTTP on :3100 · Kokoro TTS · whisper.cpp v1.7.1",
+    where: "voice-service/ — runs only in Docker",
+    what: `TARS has voice, but only for the interactive TARS Agent — not the coding or planner agents. whisper.cpp is pinned to v1.7.1 (ARM64/GCC regressions on HEAD). TTS inference is serialized; pre-cached openers bypass the queue.`,
+    items: [
+      ["server.ts — /health · /tts · /tts/filler · /stt", "Bun HTTP · port 3100"],
+      ["Kokoro TTS pool (default 3)", "Opus-encoded responses"],
+      ["whisper.cpp v1.7.1 — 16kHz mono WAV via ffmpeg", "built in stage 1 of Dockerfile"],
+      ["server.ts:199–217 — pre-cached personality openers", "deadpan TARS from Interstellar"],
+      ["server.ts:337–365 — single-request semaphore", "ONNX inference serialized on purpose"],
+      ["docker-compose.yml:35–48 — 60s healthcheck start", "model load is slow"],
+    ],
+  },
+};
+
+const AGENTS = [
+  { kind: "scheduled",   name: "DailyBriefingAgent",   when: "07:30 M–F", what: "Morning synthesis of ADO, calendar, notes." },
+  { kind: "scheduled",   name: "StandupAgent",          when: "08:45 M–F", what: "Standup-ready summary of what shipped." },
+  { kind: "scheduled",   name: "DailyNotesAgent",       when: "18:00 M–F", what: "End-of-day log of context and decisions." },
+  { kind: "scheduled",   name: "WeeklyNotesAgent",      when: "Fri 17:30", what: "Weekly rollup from daily notes." },
+  { kind: "scheduled",   name: "MonthlyNotesAgent",     when: "monthly",   what: "Long-form monthly retro." },
+  { kind: "scheduled",   name: "EngagePostDraftAgent",  when: "weekly",    what: "Draft posts for internal social." },
+  { kind: "scheduled",   name: "LearningFinderAgent",   when: "daily",     what: "Surfaces one thing to learn today." },
+  { kind: "scheduled",   name: "DemoFinderAgent",       when: "weekly",    what: "Extracts demo-worthy moments." },
+  { kind: "background",  name: "ADOSyncAgent",          when: "continuous", what: "Mirrors ADO work items to local cache." },
+  { kind: "background",  name: "KnowledgeIndexerAgent", when: "continuous", what: "Chunks + embeds unindexed records." },
+  { kind: "background",  name: "ValuesEvolutionAgent",  when: "continuous", what: "Evolves the user's values profile." },
+  { kind: "on-demand",   name: "OneOnOneAgent",         when: "on request", what: "Prep doc for a specific 1:1." },
+  { kind: "on-demand",   name: "ProjectPlannerAgent",   when: "interactive", what: "Hierarchical project breakdown." },
+  { kind: "on-demand",   name: "QuickNoteProcessorAgent", when: "on capture", what: "Classifies + tags a fresh note." },
+  { kind: "system",      name: "HealthCheckAgent",      when: "worker boot", what: "Verifies deps, tokens, queues." },
+];
+
+const FSM_DATA = {
+  planning: {
+    blurb: `Every run starts here. The planner classifies the work — <strong>code-change</strong>, <strong>investigation</strong>, or <strong>insufficient-info</strong> — then enriches with ADO metadata and synthesizes a target-file plan. If the plan needs approval, it opens a <code>plan-approval</code> gate.`,
+    substates: ["discovered", "classifying", "enriching", "plan-ready", "awaiting-plan-approval", "plan-rejected"],
+    consumes: ["task_discovered", "task_classified", "task_enriched", "plan_ready", "signal_received"],
+    emits: ["run_planner", "open_gate (plan-approval)", "dispatch_coding", "finish_run (investigation)"],
+  },
+  implementing: {
+    blurb: `The coding agent runs in an isolated git worktree. When it finishes, it calls back with a draft PR id. Failure opens an <code>implementation-retry</code> gate — humans decide whether to retry with a new directive.`,
+    substates: ["implementation-dispatched", "implementation-failed", "awaiting-implementation-retry", "coding-loopback-dispatched"],
+    consumes: ["implementation_started", "implementation_complete", "implementation_failed", "phase_interrupted", "signal_received"],
+    emits: ["dispatch_coding", "open_gate (implementation-retry)", "enqueue_review"],
+  },
+  reviewing: {
+    blurb: `Review is a separate Claude agent with its own MCP tools (read diff, check ADO ACs). On <strong>needs-changes</strong> it either loops back to coding or — if iteration/cost caps are hit — opens <code>review-caps-exceeded</code>. On <strong>approved</strong> it hands off to verify.`,
+    substates: ["review-in-flight", "awaiting-review-caps-gate", "coding-loopback-dispatched"],
+    consumes: ["review_started", "review_completed", "coding_loopback_completed"],
+    emits: ["enqueue_review", "enqueue_verify", "enqueue_coding_loopback", "open_gate (review-caps-exceeded)"],
+  },
+  verifying: {
+    blurb: `Verify polls ADO CI every 30 s for up to 10 minutes (<code>fetchAdoCiStatus</code>). Failures bounce back to coding as another loopback, carrying the blocker details as the directive. Cost caps apply.`,
+    substates: ["verify-in-flight", "awaiting-verify-caps-gate"],
+    consumes: ["verify_started", "verify_completed"],
+    emits: ["enqueue_verify", "enqueue_coding_loopback", "open_gate (verify-caps-exceeded)", "submit_pr"],
+  },
+  submitting: {
+    blurb: `The draft PR is flipped to ready-for-merge. <code>az repos pr update --id &lt;n&gt; --set-auto-complete</code>. One event — <code>pr_submitted</code> — and the run is done.`,
+    substates: ["submitting"],
+    consumes: ["pr_submitted"],
+    emits: ["submit_pr", "finish_run"],
+  },
+  terminal: {
+    blurb: `No further transitions. The run's final <code>status</code> is written to <code>executor_runs</code> and surfaces in the Kanban "submitted" column (or "abandoned", or "investigation-complete"). The event log remains available for replay and audit.`,
+    substates: ["completed", "submitted", "abandoned", "failed", "investigation-complete"],
+    consumes: ["(none — absorbing state)"],
+    emits: ["(none)"],
+  },
+};
+
+/* Concrete run — ADO 411043 */
+const RUN_EVENTS = [
+  { ts: "+0s",   phase: "planning",     kind: "task_discovered",         desc: "WorkItemScanner picked up ADO 411043" },
+  { ts: "+2s",   phase: "planning",     kind: "task_classified",         desc: "classification: code-change" },
+  { ts: "+9s",   phase: "planning",     kind: "task_enriched",           desc: "ADO metadata + linked PRs + comments folded" },
+  { ts: "+24s",  phase: "planning",     kind: "plan_ready",              desc: "target files: 3 · approach synthesized · needsApproval=false" },
+  { ts: "+25s",  phase: "implementing", kind: "implementation_started",  desc: "dispatch_coding → worktree slot #2 reserved" },
+  { ts: "+8m",   phase: "implementing", kind: "implementation_complete", desc: "draftPrId=42 · costUsd=2.50" },
+  { ts: "+8m",   phase: "reviewing",    kind: "review_started",          desc: "enqueue_review · iteration 1" },
+  { ts: "+9m",   phase: "reviewing",    kind: "review_completed",        desc: "status: needs-changes — off-by-one in Parser.ts:42" },
+  { ts: "+9m",   phase: "implementing", kind: "coding_loopback_dispatched", desc: "resume session with blocker directive" },
+  { ts: "+12m",  phase: "implementing", kind: "coding_loopback_completed",  desc: "commit pushed · costUsd=0.80" },
+  { ts: "+12m",  phase: "reviewing",    kind: "review_completed",        desc: "status: approved · blockers=[]" },
+  { ts: "+13m",  phase: "verifying",    kind: "verify_started",          desc: "enqueue_verify · polling ADO CI" },
+  { ts: "+15m",  phase: "verifying",    kind: "verify_completed",        desc: "status: passed · no blockers" },
+  { ts: "+15m",  phase: "submitting",   kind: "pr_submitted",            desc: "az repos pr update --set-auto-complete" },
+  { ts: "+15m",  phase: "terminal",     kind: "run_completed",           desc: "status=submitted · finish_run applied" },
+];
+
+/* ─────────────────────────────────────────────────────────
+   Behaviours
+───────────────────────────────────────────────────────── */
+
+function renderLayer(key) {
+  const d = LAYER_DATA[key];
+  const el = document.getElementById("layer-detail");
+  el.innerHTML = `
+    <h3>${d.title}</h3>
+    <div class="meta">
+      <span>${d.where}</span>
+      <span>${d.subtitle}</span>
+    </div>
+    <p>${d.what}</p>
+    <ul>
+      ${d.items.map(([l, r]) => `<li><span>${l}</span><span class="cite">${r}</span></li>`).join("")}
+    </ul>
+  `;
+}
+
+function setupLayers() {
+  const tabs = document.querySelectorAll(".layer");
+  tabs.forEach((t) => {
+    t.addEventListener("click", () => {
+      tabs.forEach((x) => x.setAttribute("aria-selected", "false"));
+      t.setAttribute("aria-selected", "true");
+      renderLayer(t.dataset.layer);
+    });
+  });
+  renderLayer("l1");
+}
+
+function setupAgents() {
+  const grid = document.getElementById("agents-grid");
+  grid.innerHTML = AGENTS.map((a) => `
+    <div class="agent" role="listitem" data-kind="${a.kind}">
+      <div class="kind">${a.kind}</div>
+      <div class="n">${a.name}</div>
+      <div class="w">${a.what}</div>
+      <div class="when">${a.when}</div>
+    </div>
+  `).join("");
+}
+
+function renderFSM(phase) {
+  const d = FSM_DATA[phase];
+  const body = document.getElementById("fsm-body");
+  const blurb = document.getElementById("fsm-blurb");
+  const isTerminal = phase === "terminal";
+  body.innerHTML = `
+    <div class="fsm-col">
+      <h4>substates</h4>
+      <ul>${d.substates.map((s) => `<li${isTerminal && (s === "completed" || s === "submitted" || s === "investigation-complete") ? ' class="terminal"' : ''}${isTerminal && (s === "abandoned" || s === "failed") ? ' class="danger"' : ''}>${s}</li>`).join("")}</ul>
+    </div>
+    <div class="fsm-col">
+      <h4>consumes events</h4>
+      <ul>${d.consumes.map((c) => `<li>${c}</li>`).join("")}</ul>
+    </div>
+    <div class="fsm-col">
+      <h4>emits effects</h4>
+      <ul>${d.emits.map((e) => `<li>${e}</li>`).join("")}</ul>
+    </div>
+  `;
+  blurb.innerHTML = d.blurb;
+}
+
+function setupFSM() {
+  const tabs = document.querySelectorAll(".fsm-phase");
+  tabs.forEach((t) => {
+    t.addEventListener("click", () => {
+      tabs.forEach((x) => x.setAttribute("aria-selected", "false"));
+      t.setAttribute("aria-selected", "true");
+      renderFSM(t.dataset.phase);
+    });
+  });
+  renderFSM("planning");
+}
+
+/* ─── Concrete run player ─── */
+let runPlaying = false;
+let runTimer = null;
+let runIdx = 0;
+
+function renderRunEvents(count) {
+  const wrap = document.getElementById("run-events");
+  wrap.innerHTML = RUN_EVENTS.slice(0, count).map((e, i) => `
+    <div class="run-event ${i < count ? 'shown' : ''}">
+      <span class="ts">${e.ts}</span>
+      <span class="what"><span class="kind">${e.kind}</span><span class="desc">${e.desc}</span></span>
+      <span class="phase">${e.phase}</span>
+    </div>
+  `).join("");
+  // force reflow then show
+  requestAnimationFrame(() => {
+    wrap.querySelectorAll(".run-event").forEach((el) => el.classList.add("shown"));
+  });
+}
+
+function runSetStatus(label) {
+  document.getElementById("run-status").textContent = label;
+}
+
+function runStep() {
+  if (runIdx >= RUN_EVENTS.length) {
+    runPlaying = false;
+    document.getElementById("run-play").setAttribute("aria-pressed", "false");
+    document.getElementById("run-play").textContent = "▶ replay";
+    runSetStatus("run complete — status: submitted");
+    return;
+  }
+  runIdx += 1;
+  renderRunEvents(runIdx);
+  const ev = RUN_EVENTS[runIdx - 1];
+  runSetStatus(`phase: ${ev.phase}`);
+  runTimer = setTimeout(runStep, 850);
+}
+
+function setupRun() {
+  const play = document.getElementById("run-play");
+  const reset = document.getElementById("run-reset");
+  renderRunEvents(1); runIdx = 1;
+  runSetStatus("idle · press play");
+
+  play.addEventListener("click", () => {
+    if (runPlaying) {
+      runPlaying = false;
+      clearTimeout(runTimer);
+      play.setAttribute("aria-pressed", "false");
+      play.textContent = "▶ resume";
+      runSetStatus("paused");
+      return;
+    }
+    runPlaying = true;
+    play.setAttribute("aria-pressed", "true");
+    play.textContent = "⏸ pause";
+    if (runIdx >= RUN_EVENTS.length) { runIdx = 0; }
+    runStep();
+  });
+
+  reset.addEventListener("click", () => {
+    clearTimeout(runTimer);
+    runPlaying = false;
+    runIdx = 1;
+    play.setAttribute("aria-pressed", "false");
+    play.textContent = "▶ play";
+    renderRunEvents(1);
+    runSetStatus("idle · press play");
+  });
+}
+
+/* ─── Scroll reveals & top-bar shadow ─── */
+function setupReveal() {
+  const nodes = document.querySelectorAll(".reveal");
+  if (!("IntersectionObserver" in window)) {
+    nodes.forEach((el) => el.classList.add("in"));
+    return;
+  }
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        e.target.classList.add("in");
+        io.unobserve(e.target);
+      }
+    });
+  }, { rootMargin: "0px 0px -5% 0px", threshold: 0.01 });
+  nodes.forEach((el) => io.observe(el));
+  // Fallback: ensure everything is revealed within 1.5s regardless of scroll state.
+  setTimeout(() => nodes.forEach((el) => el.classList.add("in")), 1500);
+}
+
+function setupTopbar() {
+  const bar = document.getElementById("topbar");
+  const onScroll = () => {
+    if (window.scrollY > 12) bar.classList.add("is-scrolled");
+    else bar.classList.remove("is-scrolled");
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+}
+
+/* boot */
+document.addEventListener("DOMContentLoaded", () => {
+  setupLayers();
+  setupAgents();
+  setupFSM();
+  setupRun();
+  setupReveal();
+  setupTopbar();
+});
+</script>
+</body>
+</html>
